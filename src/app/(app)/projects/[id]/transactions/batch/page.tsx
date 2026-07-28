@@ -1,14 +1,15 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
+import { ChevronLeft } from "lucide-react";
 import { db } from "@/lib/db";
 import { people } from "@/lib/db/schema";
 import { requireProject } from "@/lib/server-utils";
-import { Card, CardBody } from "@/components/ui/Card";
-import { NewTransactionClient } from "@/components/NewTransactionClient";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { BatchTransactionClient } from "@/components/BatchTransactionClient";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewTransactionPage({
+export default async function BatchTransactionPage({
   params,
 }: {
   params: { id: string };
@@ -40,7 +41,7 @@ export default async function NewTransactionPage({
   }
 
   return (
-    <NewTransactionClient
+    <BatchTransactionClient
       projectId={project.id}
       projectName={project.name}
       currencyCode={project.currencyCode}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { Plus, CheckCircle2, Trash2, Wallet, ChevronDown, ChevronUp } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -61,6 +62,7 @@ export function PersonPaymentCard({
         setError(res.error);
         return;
       }
+      toast.success("Payment recorded successfully");
       setAmount("");
       setNote("");
       setShowAdd(false);
@@ -69,14 +71,16 @@ export function PersonPaymentCard({
 
   function markPaid() {
     startTransition(async () => {
-      await markFullyPaidAction(projectId, txnId, personId);
+      const res = await markFullyPaidAction(projectId, txnId, personId);
+      if (!res?.error) toast.success("Marked as fully paid");
     });
   }
 
   function removePayment(pid: string) {
     if (!confirm("Delete this payment?")) return;
     startTransition(async () => {
-      await deletePaymentAction(projectId, txnId, pid);
+      const res = await deletePaymentAction(projectId, txnId, pid);
+      if (!res?.error) toast.success("Payment deleted");
     });
   }
 
@@ -86,15 +90,15 @@ export function PersonPaymentCard({
         <div className="flex items-center gap-3 min-w-0">
           <Avatar name={personName} color={personColorHex} />
           <div>
-            <div className="font-medium text-gray-900">{personName}</div>
-            <div className="text-xs text-gray-500">
+            <div className="font-medium text-gray-900 dark:text-white">{personName}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Owes {formatCentsCompact(owed, currencySymbol)} · Paid {formatCentsCompact(paid, currencySymbol)}
             </div>
             {payments.length > 0 && (
               <button
                 type="button"
                 onClick={() => setShowHistory(!showHistory)}
-                className="text-xs text-brand-600 mt-1 inline-flex items-center gap-0.5"
+                className="text-xs text-brand-600 dark:text-brand-400 mt-1 inline-flex items-center gap-0.5"
               >
                 {showHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 {payments.length} payment{payments.length === 1 ? "" : "s"} on record
@@ -132,12 +136,12 @@ export function PersonPaymentCard({
       {showHistory && payments.length > 0 && (
         <div className="mt-3 pl-12 space-y-1">
           {payments.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 text-xs text-gray-600 group">
+            <div key={p.id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 group">
               <span className="w-24 font-mono">
                 {formatCentsCompact(p.amountCents, currencySymbol)}
               </span>
-              <span className="text-gray-500">{formatDate(p.paidAt)}</span>
-              {p.note && <span className="text-gray-400">— {p.note}</span>}
+              <span className="text-gray-500 dark:text-gray-500">{formatDate(p.paidAt)}</span>
+              {p.note && <span className="text-gray-400 dark:text-gray-500">— {p.note}</span>}
               <button
                 type="button"
                 onClick={() => removePayment(p.id)}
@@ -152,7 +156,7 @@ export function PersonPaymentCard({
       )}
 
       {showAdd && (
-        <div className="mt-3 pl-12 border-t border-gray-100 pt-3 space-y-2">
+        <div className="mt-3 pl-12 border-t border-gray-100 dark:border-gray-800 pt-3 space-y-2">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             <div>
               <Label>Amount ({currencyCode})</Label>

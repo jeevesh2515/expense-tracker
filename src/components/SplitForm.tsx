@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Select, Label, FieldError } from "@/components/ui/Input";
 import { CardBody } from "@/components/ui/Card";
 import { EqualSplitIcon, ExactIcon, PercentIcon } from "@/components/icons";
-import { createTransactionAction } from "@/lib/actions/transaction-actions";
+import { toast } from "sonner";
+import { createTransactionAction, updateTransactionAction, type TransactionActionState } from "@/lib/actions/transaction-actions";
 
 export type SplitFormPerson = {
   id: string;
@@ -15,7 +16,44 @@ export type SplitFormPerson = {
   colorHex: string;
 };
 
+export type ExistingSplits = {
+  personId: string;
+  shareType: string;
+  shareValue: number;
+  owedAmountCents: number;
+}[];
+
+/** Pre-filled data from OCR receipt scan */
+export type OcrPrefill = {
+  title: string | null;
+  amount: number | null; // in cents
+  date: string | null; // YYYY-MM-DD
+  category: string | null;
+};
+
 const today = () => new Date().toISOString().slice(0, 10);
+
+type Props = {
+  projectId: string;
+  people: SplitFormPerson[];
+  currencySymbol: string;
+  currencyCode: string;
+  defaultPaidById: string | null;
+  // Edit mode props (optional)
+  txnId?: string;
+  initialTitle?: string;
+  initialDescription?: string;
+  initialCategory?: string;
+  initialTotalAmountCents?: number;
+  initialPaidById?: string;
+  initialOccurredAt?: string;
+  initialShareType?: ShareType;
+  initialSplits?: ExistingSplits;
+  // OCR pre-fill prop
+  ocrData?: OcrPrefill | null;
+  // Receipt image data URL (from OCR scan)
+  receiptImage?: string | null;
+};
 
 export function SplitForm({
   projectId,
@@ -23,26 +61,63 @@ export function SplitForm({
   currencySymbol,
   currencyCode,
   defaultPaidById,
-}: {
-  projectId: string;
-  people: SplitFormPerson[];
-  currencySymbol: string;
-  currencyCode: string;
-  defaultPaidById: string | null;
-}) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("");
-  const [totalAmount, setTotalAmount] = useState("");
-  const [paidById, setPaidById] = useState(defaultPaidById ?? people[0]?.id ?? "");
-  const [occurredAt, setOccurredAt] = useState(today());
+  txnId,
+  initialTitle,
+  initialDescription,
+  initialCategory,
+  initialTotalAmountCents,
+  initialPaidById,
+  initialOccurredAt,
+  initialShareType,
+  initialSplits,
+  ocrData,
+  receiptImage,
+}: Props) {
+  const isEditMode = !!txnId;
 
-  const [shareType, setShareType] = useState<ShareType>("equal");
-  // selected: participants. values: per-person split input.
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(people.map((p) => p.id)),
-  );
-  const [values, setValues] = useState<Record<string, string>>({});
+  // Convert initial cents to display string
+  const initialAmountStr = useMemo(() => {
+    if (ocrData?.amount != null) {
+      const whole = Math.floor(ocrData.amount / 100);
+      const frac = ocrData.amount % 100;
+      return frac === 0 && whole > 0 ? String(whole) : `${whole}.${frac.toString().padStart(2, "0")}`;
+    }
+    if (initialTotalAmountCents == null) return "";
+    const whole = Math.floor(initialTotalAmountCents / 100);
+    const frac = initialTotalAmountCents % 100;
+    return frac === 0 && whole > 0 ? String(whole) : `${whole}.${frac.toString().padStart(2, "0")}`;
+  }, [initialTotalAmountCents, ocrData]);
+
+  // Build initial selected set from splits
+  const initialSelected = useMemo(() => {
+    if (initialSplits) return new Set(initialSplits.map((s) => s.personId));
+    return new Set(people.map((p) => p.id));
+  }, [initialSplits, people]);
+
+  // Build initial values for exact/percentage from splits
+  const initialValues = useMemo(() => {
+    if (!initialSplits || !initialShareType) return {};
+    const vals: Record<string, string> = {};
+    for (const s of initialSplits) {
+      if (initialShareType === "exact") {
+        vals[s.personId] = (s.owedAmountCents / 100).toFixed(2);
+      } else if (initialShareType === "percentage") {
+        vals[s.personId] = (s.shareValue / 100).toFixed(2);
+      }
+    }
+    return vals;
+  }, [initialSplits, initialShareType]);
+
+  const [title, setTitle] = useState(initialTitle ?? ocrData?.title ?? "");
+  const [description, setDescription] = useState(initialDescription ?? "");
+  const [category, setCategory] = useState(initialCategory ?? ocrData?.category ?? "");
+  const [totalAmount, setTotalAmount] = useState(initialAmountStr);
+  const [paidById, setPaidById] = useState(initialPaidById ?? defaultPaidById ?? people[0]?.id ?? "");
+  const [occurredAt, setOccurredAt] = useState(initialOccurredAt ?? ocrData?.date ?? today());
+
+  const [shareType, setShareType] = useState<ShareType>(initialShareType ?? "equal");
+  const [selected, setSelected] = useState<Set<string>>(initialSelected);
+  const [values, setValues] = useState<Record<string, string>>(initialValues);
 
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -116,10 +191,19 @@ export function SplitForm({
       "participants",
       JSON.stringify(participantsForCalc.map((p) => ({ personId: p.personId, value: p.value }))),
     );
+    if (receiptImage) {
+      formData.set("receiptImage", receiptImage);
+    }
 
     startTransition(async () => {
-      const res = await createTransactionAction(projectId, formData);
+      let res: TransactionActionState | undefined;
+      if (isEditMode && txnId) {
+        res = await updateTransactionAction(projectId, txnId, formData);
+      } else {
+        res = await createTransactionAction(projectId, formData);
+      }
       if (res?.error) setError(res.error);
+      else if (isEditMode) toast.success("Transaction updated successfully");
     });
   }
 
@@ -226,8 +310,8 @@ export function SplitForm({
 
       <div className="card">
         <div className="card-header">
-          <h3 className="font-semibold">Participants</h3>
-          <div className="text-xs text-gray-500">
+          <h3 className="font-semibold dark:text-white">Participants</h3>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {selected.size} of {people.length} selected
           </div>
         </div>
@@ -241,7 +325,7 @@ export function SplitForm({
                   key={p.id}
                   className={
                     "flex items-center gap-3 p-2 rounded-lg transition " +
-                    (isSel ? "bg-brand-50" : "bg-gray-50 opacity-70")
+                    (isSel ? "bg-brand-50 dark:bg-brand-900/20" : "bg-gray-50 dark:bg-gray-800 opacity-70")
                   }
                 >
                   <input
@@ -250,7 +334,7 @@ export function SplitForm({
                     onChange={() => toggle(p.id)}
                     className="rounded text-brand-600 focus:ring-brand-300 w-4 h-4"
                   />
-                  <span className="w-32 truncate font-medium text-sm">{p.name}</span>
+                  <span className="w-32 truncate font-medium text-sm dark:text-white">{p.name}</span>
                   {isSel && shareType === "exact" && (
                     <div className="flex items-center gap-1 flex-1 max-w-xs">
                       <span className="text-sm text-gray-500">{currencySymbol}</span>
@@ -311,7 +395,7 @@ export function SplitForm({
 
       <div className="flex justify-end gap-2">
         <Button type="submit" disabled={isPending || !!preview.error}>
-          {isPending ? "Saving…" : "Save transaction"}
+          {isPending ? "Saving…" : isEditMode ? "Save changes" : "Save transaction"}
         </Button>
       </div>
     </form>
@@ -338,14 +422,14 @@ function ModeCard({
       className={
         "p-3 rounded-lg border text-left transition flex items-start gap-3 " +
         (active
-          ? "border-brand-500 bg-brand-50 ring-2 ring-brand-200"
-          : "border-gray-200 hover:border-gray-300 bg-white")
+          ? "border-brand-500 bg-brand-50 dark:bg-brand-900/30 ring-2 ring-brand-200 dark:ring-brand-700"
+          : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-gray-800")
       }
     >
       <div className="shrink-0 mt-0.5">{icon}</div>
       <div>
-        <div className="font-semibold text-sm">{title}</div>
-        <div className="text-xs text-gray-500 mt-0.5">{description}</div>
+        <div className="font-semibold text-sm text-gray-900 dark:text-white">{title}</div>
+        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</div>
       </div>
     </button>
   );

@@ -84,6 +84,7 @@ export async function createTransactionAction(
   const occurredAtRaw = String(formData.get("occurredAt") ?? "");
   const shareType = String(formData.get("shareType") ?? "equal") as ShareType;
   const participantsRaw = String(formData.get("participants") ?? "[]");
+  const receiptImage = String(formData.get("receiptImage") ?? "");
 
   const t = TitleSchema.safeParse(title);
   if (!t.success) return { error: "Title required (1–120 chars)." };
@@ -128,6 +129,7 @@ export async function createTransactionAction(
         currencyCode: project.currencyCode,
         currencySymbol: project.currencySymbol,
         occurredAt: new Date(occurredAt),
+        receiptImage: receiptImage || null,
       })
       .returning()
       .get();
@@ -184,6 +186,7 @@ export async function updateTransactionAction(
   const occurredAtRaw = String(formData.get("occurredAt") ?? "");
   const shareType = String(formData.get("shareType") ?? "equal") as ShareType;
   const participantsRaw = String(formData.get("participants") ?? "[]");
+  const receiptImage = String(formData.get("receiptImage") ?? "");
 
   const t = TitleSchema.safeParse(title);
   if (!t.success) return { error: "Title required (1–120 chars)." };
@@ -221,6 +224,7 @@ export async function updateTransactionAction(
         category: category || null,
         totalAmountCents: totalCents,
         occurredAt: new Date(occurredAt),
+        ...(receiptImage ? { receiptImage } : {}),
       })
       .where(eq(transactions.id, txnId))
       .run();
@@ -253,4 +257,101 @@ export async function deleteTransactionAction(
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/transactions`);
   redirect(`/projects/${projectId}/transactions`);
+}
+
+// ============================================================
+// BATCH CREATE TRANSACTIONS
+// ============================================================
+
+export type BatchTransactionInput = {
+  title: string;
+  amount: string; // display string like "45.00"
+  date: string; // YYYY-MM-DD
+  category: string | null;
+  paidById: string;
+  receiptImage?: string | null;
+};
+
+export type BatchCreateResult = {
+  error: string | null;
+  count: number;
+};
+
+export async function batchCreateTransactionsAction(
+  projectId: string,
+  transactionInputs: BatchTransactionInput[],
+): Promise<BatchCreateResult> {
+  const { project, allPeople } = await loadProjectContext(projectId);
+
+  if (!transactionInputs || transactionInputs.length === 0) {
+    return { error: "No transactions to create.", count: 0 };
+  }
+
+  if (allPeople.length === 0) {
+    return { error: "No people in this project.", count: 0 };
+  }
+
+  const createdIds: string[] = [];
+
+  try {
+    await db.transaction(async (tx) => {
+      for (const txn of transactionInputs) {
+        const title = txn.title.trim();
+        if (!title) continue;
+
+        let totalCents: number;
+        try {
+          totalCents = parseAmountToCents(txn.amount);
+        } catch {
+          continue; // Skip invalid amounts
+        }
+        if (totalCents <= 0) continue;
+
+        const occurredAt = txn.date ? new Date(txn.date).getTime() : Date.now();
+        if (Number.isNaN(occurredAt)) continue;
+
+        const payer = allPeople.find((p) => p.id === txn.paidById);
+        if (!payer) continue;
+
+        const inserted = await tx
+          .insert(transactions)
+          .values({
+            projectId,
+            paidById: txn.paidById,
+            title,
+            category: txn.category || null,
+            totalAmountCents: totalCents,
+            currencyCode: project.currencyCode,
+            currencySymbol: project.currencySymbol,
+            occurredAt: new Date(occurredAt),
+            receiptImage: txn.receiptImage || null,
+          })
+          .returning()
+          .get();
+
+        // Create equal splits among all people
+        const computedSplits = computeSplits(totalCents, "equal", allPeople.map((p) => ({ personId: p.id, name: p.name, value: 0 })));
+
+        for (const s of computedSplits) {
+          await tx.insert(splits).values({
+            transactionId: inserted.id,
+            personId: s.personId,
+            shareType: s.shareType,
+            shareValue: s.shareValue,
+            owedAmountCents: s.owedAmountCents,
+          });
+        }
+
+        createdIds.push(inserted.id);
+      }
+    });
+
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath(`/projects/${projectId}/transactions`);
+
+    return { error: null, count: createdIds.length };
+  } catch (err) {
+    console.error("Batch create error:", err);
+    return { error: "Failed to create some transactions.", count: createdIds.length };
+  }
 }

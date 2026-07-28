@@ -92,6 +92,7 @@ export const transactions = sqliteTable(
     currencyCode: text("currency_code").notNull(),
     currencySymbol: text("currency_symbol").notNull(),
     occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
+    receiptImage: text("receipt_image"), // base64 data URL of scanned receipt
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(now()),

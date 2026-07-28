@@ -1,16 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq, and } from "drizzle-orm";
-import { ChevronLeft, Receipt, Calendar, Tag, User } from "lucide-react";
+import { ChevronLeft, Receipt, Calendar, Tag, User, Pencil } from "lucide-react";
 import { db } from "@/lib/db";
 import { transactions, splits, payments, people } from "@/lib/db/schema";
 import { requireProject } from "@/lib/server-utils";
 import { computeTransactionBalances } from "@/lib/calculations";
-import { Card, CardHeader, CardBody } from "@/components/ui/Card";
-import { Avatar } from "@/components/ui/Avatar";
+import { Card, CardBody } from "@/components/ui/Card";
 import { formatCentsCompact, formatDate } from "@/lib/utils";
 import { PersonPaymentCard } from "@/components/PersonPaymentCard";
 import { DeleteTransactionButton } from "@/components/DeleteTransactionButton";
+import { ReceiptImageThumbnail } from "@/components/ReceiptImageThumbnail";
 import {
   deleteTransactionAction,
 } from "@/lib/actions/transaction-actions";
@@ -104,16 +104,33 @@ export default async function TransactionDetailPage({
                 <p className="text-sm text-gray-600 mt-3 max-w-2xl">{txn.description}</p>
               )}
             </div>
-            <DeleteTransactionButton
-              projectId={project.id}
-              txnId={txn.id}
-              txnTitle={txn.title}
-              onDelete={async () => {
-                "use server";
-                await deleteTransactionAction(project.id, txn.id);
-              }}
-            />
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/projects/${project.id}/transactions/${txn.id}/edit`}
+                className="btn btn-secondary btn-sm"
+              >
+                <Pencil className="w-4 h-4" />
+                Edit
+              </Link>
+              <DeleteTransactionButton
+                projectId={project.id}
+                txnId={txn.id}
+                txnTitle={txn.title}
+                onDelete={async () => {
+                  "use server";
+                  await deleteTransactionAction(project.id, txn.id);
+                }}
+              />
+            </div>
           </div>
+
+          {/* Receipt Image Thumbnail */}
+          {txn.receiptImage && (
+            <ReceiptImageThumbnail
+              receiptImage={txn.receiptImage}
+              title={txn.title}
+            />
+          )}
         </CardBody>
       </Card>
 

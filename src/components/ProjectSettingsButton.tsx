@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { Settings, Trash2, Save } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Label, FieldError } from "@/components/ui/Input";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CurrencyNotice } from "@/components/CurrencyNotice";
 import { updateProjectAction, deleteProjectAction } from "@/lib/actions/project-actions";
 
@@ -21,18 +23,19 @@ export function ProjectSettingsButton({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   function handleSubmit(formData: FormData) {
     setError(null);
     startTransition(async () => {
       const res = await updateProjectAction(projectId, formData);
       if (res?.error) setError(res.error);
-      else setOpen(false);
+      else { setOpen(false); toast.success("Project updated successfully"); }
     });
   }
 
-  function handleDelete() {
-    if (!confirm(`Delete project "${projectName}"? This permanently removes all transactions, people, and payments.`)) return;
+  function handleDeleteConfirm() {
+    setShowDeleteConfirm(false);
     startTransition(async () => {
       await deleteProjectAction(projectId);
     });
@@ -52,7 +55,7 @@ export function ProjectSettingsButton({
           />
           <div className="absolute right-0 top-full mt-2 w-96 z-50 card shadow-xl">
             <div className="card-header">
-              <h3 className="font-semibold">Project settings</h3>
+              <h3 className="font-semibold dark:text-white">Project settings</h3>
             </div>
             <form action={handleSubmit} className="card-body space-y-3">
               <div>
@@ -79,7 +82,7 @@ export function ProjectSettingsButton({
                   type="button"
                   variant="danger"
                   size="sm"
-                  onClick={handleDelete}
+                  onClick={() => setShowDeleteConfirm(true)}
                   disabled={isPending}
                 >
                   <Trash2 className="w-4 h-4" /> Delete project
@@ -92,6 +95,15 @@ export function ProjectSettingsButton({
           </div>
         </>
       )}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title={`Delete "${projectName}"?`}
+        description="This will permanently remove all transactions, people, and payment records in this project. This action cannot be undone."
+        confirmLabel="Delete project"
+        onConfirm={handleDeleteConfirm}
+        loading={isPending}
+      />
     </div>
   );
 }
