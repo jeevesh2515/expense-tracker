@@ -9,6 +9,7 @@ import {
   simplifySettlements,
 } from "@/lib/calculations";
 import { BalanceView } from "@/components/BalanceView";
+import { ProjectCharts, type CategoryPoint, type PersonNet, type SpendingPoint } from "@/components/ProjectCharts";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { formatCentsCompact, formatDate } from "@/lib/utils";
@@ -70,6 +71,112 @@ export default async function ProjectOverviewPage({
   // Compute settlement simplification against project balances alone.
   const settlements = simplifySettlements(balances.people);
 
+  // -----------------------------------------------------------------------
+  // Server-side aggregations for the chart component. Done here (not in the
+  // client component) so we serialize only compact summaries, not the full
+  // transaction list.
+  // -----------------------------------------------------------------------
+  const WEEKS_TO_PLOT = 12;
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - (WEEKS_TO_PLOT - 1) * 7);
+  // Floor `start` to the most recent Sunday so weekly buckets align on the
+  // same boundary across renders, giving a stable x-axis regardless of when
+  // the page is re-validated.
+  const startDow = start.getDay(); // 0 = Sunday
+  if (startDow !== 0) start.setDate(start.getDate() - startDow);
+
+  // Build the bucket boundaries as numeric epoch-ms values so the comparison
+  // below is unambiguous and timezone-independent. Bucket keys are still
+  // produced as YYYY-MM-DD for human-readable x-axis labels.
+  const spendingBucketMs: Array<{ key: string; startMs: number }> = [];
+  for (let i = 0; i < WEEKS_TO_PLOT; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i * 7);
+    spendingBucketMs.push({
+      key: d.toISOString().slice(0, 10),
+      startMs: d.getTime(),
+    });
+  }
+
+  const spendingBuckets = new Map<string, number>(
+    spendingBucketMs.map((b) => [b.key, 0]),
+  );
+  for (const t of projectTransactions) {
+    const ts =
+      t.occurredAt instanceof Date ? t.occurredAt.getTime() : Number(t.occurredAt);
+    if (!Number.isFinite(ts)) continue;
+    // Bucket the transaction into the most recent weekly bucket whose start
+    // is ≤ ts. Reverse iteration lets us stop early on match.
+    for (let i = spendingBucketMs.length - 1; i >= 0; i--) {
+      const bucket = spendingBucketMs[i]!;
+      if (ts >= bucket.startMs) {
+        spendingBuckets.set(
+          bucket.key,
+          (spendingBuckets.get(bucket.key) ?? 0) + t.totalAmountCents,
+        );
+        break;
+      }
+    }
+  }
+  const spending: SpendingPoint[] = Array.from(spendingBuckets, ([bucket, amount]) => ({
+    bucket,
+    amount,
+  }));
+
+  // Categories: include untagged spend as an explicit "Untagged" slice so
+  // the donut is consistent with the AreaChart and the Paid-vs-Consumed
+  // bar (which count 100% of spend). Without this, untagged txns would
+  // silently disappear from the donut view.
+  let untaggedCents = 0;
+  const categoryMap = new Map<string, number>();
+  for (const t of projectTransactions) {
+    const name = (t.category ?? "").trim();
+    if (!name) {
+      untaggedCents += t.totalAmountCents;
+      continue;
+    }
+    categoryMap.set(name, (categoryMap.get(name) ?? 0) + t.totalAmountCents);
+  }
+  if (untaggedCents > 0) {
+    categoryMap.set("Untagged", untaggedCents);
+  }
+  // Stamp the synthesized "missing data" row with `untagged: true` so the
+  // chart can paint it distinctly even if a user happened to name a real
+  // category "Untagged". This avoids a magic-string comparison.
+  const categories: CategoryPoint[] = Array.from(
+    categoryMap,
+    ([name, cents]) => {
+      const isUntagged = untaggedCents > 0 && name === "Untagged";
+      return isUntagged
+        ? { name, cents, untagged: true }
+        : { name, cents };
+    },
+  ).sort((a, b) => b.cents - a.cents);
+
+  const personByIdForCharts = new Map(projectPeople.map((p) => [p.id, p]));
+  const paidByPersonAt = projectTransactions.reduce<Map<string, number>>(
+    (acc, t) => acc.set(t.paidById, (acc.get(t.paidById) ?? 0) + t.totalAmountCents),
+    new Map(),
+  );
+  const consumedByPerson = allSplitsByProject.reduce<Map<string, number>>(
+    (acc, s) => acc.set(s.personId, (acc.get(s.personId) ?? 0) + s.owedAmountCents),
+    new Map(),
+  );
+  const peopleForBars: PersonNet[] = balances.people
+    .map((b) => {
+      const record = personByIdForCharts.get(b.personId);
+      return {
+        id: b.personId,
+        name: b.name,
+        colorHex: record?.colorHex ?? "#6366f1",
+        paid: paidByPersonAt.get(b.personId) ?? 0,
+        consumed: consumedByPerson.get(b.personId) ?? 0,
+        net: b.netCents,
+      };
+    })
+    .sort((a, b) => b.net - a.net);
+
   return (
     <div className="space-y-6">
       {projectPeople.length === 0 ? (
@@ -93,6 +200,13 @@ export default async function ProjectOverviewPage({
         />
       ) : (
         <>
+          <ProjectCharts
+            spending={spending}
+            categories={categories}
+            people={peopleForBars}
+            currencySymbol={project.currencySymbol}
+          />
+
           <BalanceView
             balances={balances.people}
             settlements={settlements}
