@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { people, projects, transactions } from "@/lib/db/schema";
+import { people, projects, transactions, splits, payments } from "@/lib/db/schema";
 import { requireUser } from "@/lib/server-utils";
 import { AVATAR_PALETTE } from "@/lib/utils";
 
@@ -105,20 +105,94 @@ export async function deletePersonAction(
   personId: string,
 ): Promise<PeopleActionState> {
   await getOwnedProject(projectId);
-  const usedAsPayer = await db
-    .select()
-    .from(transactions)
-    .where(and(eq(transactions.projectId, projectId), eq(transactions.paidById, personId)))
-    .all();
+  // Splits & payments both FK to people with ON DELETE RESTRICT, so the DB
+  // will throw on a raw `db.delete(people)` if this person participated in
+  // any past transaction. Pre-check all three tables and surface a friendly
+  // error so the user knows exactly what to clean up first.
+  //
+  // Splits and payments don't carry project_id directly; we scope the
+  // counts to the current project via the transactions table, so people
+  // who happened to share a person_id across projects don't trip a false
+  // positive. (In practice person IDs are unique per record and the join
+  // makes the error message accurate and project-scoped.)
+  const projectTxnIds = (
+    await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.projectId, projectId))
+      .all()
+  ).map((t) => t.id);
+
+  const [usedAsPayer, inSplits, inPayments] = await Promise.all([
+    db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.projectId, projectId),
+          eq(transactions.paidById, personId),
+        ),
+      )
+      .all(),
+    projectTxnIds.length === 0
+      ? Promise.resolve([])
+      : db
+          .select({ id: splits.id })
+          .from(splits)
+          .where(
+            and(
+              eq(splits.personId, personId),
+              inArray(splits.transactionId, projectTxnIds),
+            ),
+          )
+          .all(),
+    projectTxnIds.length === 0
+      ? Promise.resolve([])
+      : db
+          .select({ id: payments.id })
+          .from(payments)
+          .where(
+            and(
+              eq(payments.personId, personId),
+              inArray(payments.transactionId, projectTxnIds),
+            ),
+          )
+          .all(),
+  ]);
+
   if (usedAsPayer.length > 0) {
     return {
-      error:
-        "This person is the payer on one or more transactions — delete or change those first.",
+      error: `This person has paid for ${usedAsPayer.length} transaction${
+        usedAsPayer.length === 1 ? "" : "s"
+      }. Delete or reassign ${
+        usedAsPayer.length === 1 ? "that transaction" : "those transactions"
+      } first.`,
     };
   }
-  await db
-    .delete(people)
-    .where(and(eq(people.id, personId), eq(people.projectId, projectId)));
+  if (inSplits.length > 0 || inPayments.length > 0) {
+    const total = inSplits.length + inPayments.length;
+    return {
+      error: `This person has ${total} past record${
+        total === 1 ? "" : "s"
+      } (splits or payments) in this project. To preserve history, ${
+        total === 1 ? "this person can't be deleted" : "they can't be deleted"
+      } — try renaming instead, or delete the underlying transactions first.`,
+    };
+  }
+
+  try {
+    await db
+      .delete(people)
+      .where(and(eq(people.id, personId), eq(people.projectId, projectId)));
+  } catch (err) {
+    // Defense-in-depth: if a FK constraint still trips (race condition,
+    // schema inconsistency), surface a graceful error rather than 500.
+    console.error("deletePersonAction failed:", err);
+    return {
+      error:
+        "Couldn't delete this person because of existing references. Try removing them from transactions first.",
+    };
+  }
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(`/projects/${projectId}/people`);
   return { error: null };

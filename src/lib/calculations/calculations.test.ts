@@ -4,6 +4,7 @@ import {
   splitExact,
   splitPercentage,
   computeSplits,
+  balancePercentages,
   computeTransactionBalances,
   computeProjectBalances,
   simplifySettlements,
@@ -163,6 +164,170 @@ describe("computeSplits dispatcher", () => {
   it("dispatches to the right splitter", () => {
     expect(computeSplits(900, "equal", ppl([["a", "A"], ["b", "B"], ["c", "C"]])).length)
       .toBe(3);
+  });
+});
+
+describe("balancePercentages (auto-balance UX helper)", () => {
+  it("returns unchanged participants when sum is already 10000 bp", () => {
+    const r = balancePercentages(
+      ppl([["a", "A"], ["b", "B"], ["c", "C"]]).map((p, i) => ({
+        ...p,
+        value: [5000, 3000, 2000][i]!,
+      })),
+    );
+    expect(r.reduce((s, p) => s + p.value!, 0)).toBe(10000);
+    expect(r[0]!.value).toBe(5000);
+    expect(r[1]!.value).toBe(3000);
+    expect(r[2]!.value).toBe(2000);
+  });
+
+  it("absorbs positive remainder into the last participant", () => {
+    // 33.33 × 3 = 9999 bp; last must absorb +1 → 3334
+    const r = balancePercentages(
+      ppl([["a", "A"], ["b", "B"], ["c", "C"]]).map((p, i) => ({
+        ...p,
+        value: [3333, 3333, 3333][i]!,
+      })),
+    );
+    expect(r.reduce((s, p) => s + p.value!, 0)).toBe(10000);
+    expect(r[2]!.value).toBe(3334);
+  });
+
+  it("absorbs negative remainder into the last participant", () => {
+    // User typed 33.34 × 3 = 10002 bp; last must give back -2.
+    const r = balancePercentages(
+      ppl([["a", "A"], ["b", "B"], ["c", "C"]]).map((p, i) => ({
+        ...p,
+        value: [3334, 3334, 3334][i]!,
+      })),
+    );
+    expect(r.reduce((s, p) => s + p.value!, 0)).toBe(10000);
+    expect(r[2]!.value).toBe(3332);
+  });
+
+  it("auto-balances realistic UI inputs (deterministic cases)", () => {
+    // Each case is something a user could plausibly type. We verify:
+    //   1) the output sums to exactly 10000, and
+    //   2) every per-person output is in [0, 10000] bp.
+    const cases: Array<{ values: number[] }> = [
+      // 2-person, already balanced: 50/50
+      { values: [5000, 5000] },
+      // 2-person 1-cent rounding remainders (off-by-1 each direction)
+      { values: [3334, 6667] },           // sum 10001 → last absorbs -1
+      { values: [3333, 6666] },           // sum 9999 → last absorbs +1
+      // 3-person, the notorious "33.33% × 3" UX case
+      { values: [3333, 3333, 3333] },     // sum 9999 → last absorbs +1 → 3334
+      // 3-person, user accidentally typed 100% for one + 33.34 for the others
+      { values: [3334, 3334, 3334] },     // sum 10002 → last absorbs -2
+      // 6-person 16.66% case
+      { values: [1666, 1666, 1666, 1666, 1666, 1666] }, // sum 9996 → +4 to last
+      // Highly skewed 4-person: one 100%, others tiny
+      { values: [9900, 50, 50, 0] },      // sum 10000 → no-op
+      // Highly skewed: one 100%, one 0%, two mid → repair into last
+      { values: [10000, 0, 0, 0] },       // sum 10000 → no-op
+    ];
+    for (const c of cases) {
+      const participants = ppl(
+        c.values.map((_, j) => [`p${j}`, `P${j}`] as [string, string]),
+      ).map((p, j) => ({ ...p, value: c.values[j]! }));
+      const r = balancePercentages(participants);
+      const sum = r.reduce((s, p) => s + p.value!, 0);
+      expect(sum).toBe(10000);
+      r.forEach((p) => {
+        expect(p.value!).toBeGreaterThanOrEqual(0);
+        expect(p.value!).toBeLessThanOrEqual(10000);
+      });
+    }
+  });
+
+  it("output is invariant under reordering participants", () => {
+    // balancePercentages always absorbs into the LAST participant by input
+    // order, so the amount absorbed depends on which person is last.
+    const a = balancePercentages(
+      ppl([["a", "A"], ["b", "B"], ["c", "C"]]).map((p, i) => ({
+        ...p,
+        value: [3333, 3333, 3333][i]!,
+      })),
+    );
+    const b = balancePercentages(
+      ppl([["c", "C"], ["b", "B"], ["a", "A"]]).map((p, i) => ({
+        ...p,
+        value: [3333, 3333, 3333][i]!,
+      })),
+    );
+    expect(a.reduce((s, p) => s + p.value!, 0)).toBe(10000);
+    expect(b.reduce((s, p) => s + p.value!, 0)).toBe(10000);
+    // The "last" by input order is the one that absorbs the +1 bp.
+    expect(a[2]!.value).toBe(3334);
+    expect(b[2]!.value).toBe(3334);
+  });
+
+  it("rejects negative per-person percentages (defensive)", () => {
+    expect(() =>
+      balancePercentages(
+        ppl([["a", "A"], ["b", "B"]]).map((p, i) => ({
+          ...p,
+          value: [-100, 10100][i]!,
+        })),
+      ),
+    ).toThrow();
+  });
+
+  it("is idempotent: balancing already-balanced participants is a no-op", () => {
+    const balanced = balancePercentages(
+      ppl([["a", "A"], ["b", "B"], ["c", "C"]]).map((p, i) => ({
+        ...p,
+        value: [3333, 3333, 3334][i]!,
+      })),
+    );
+    const twice = balancePercentages(balanced);
+    expect(twice).toEqual(balanced);
+  });
+
+  it("handles single-participant case (n=1) by absorbing remainder into the only person", () => {
+    // 100% — no-op
+    expect(balancePercentages(
+      ppl([["a", "A"]]).map((p) => ({ ...p, value: 10000 })),
+    )[0]!.value).toBe(10000);
+    // 50% — absorbed up to 100%
+    expect(balancePercentages(
+      ppl([["a", "A"]]).map((p) => ({ ...p, value: 5000 })),
+    )[0]!.value).toBe(10000);
+    // Out-of-range (110%) — should throw (per-person > 100% is nonsensical)
+    expect(() =>
+      balancePercentages(
+        ppl([["a", "A"]]).map((p) => ({ ...p, value: 11000 })),
+      ),
+    ).toThrow();
+    // Out-of-range (200%) — should throw
+    expect(() =>
+      balancePercentages(
+        ppl([["a", "A"]]).map((p) => ({ ...p, value: 20000 })),
+      ),
+    ).toThrow();
+  });
+});
+
+describe("splitPercentage with auto-balanced inputs", () => {
+  it("handles the 3-person 33.33% case after balancePercentages", () => {
+    const balanced = balancePercentages(
+      ppl([["a", "A"], ["b", "B"], ["c", "C"]]).map((p, i) => ({
+        ...p,
+        value: [3333, 3333, 3333][i]!,
+      })),
+    );
+    const r = splitPercentage(1000, balanced);
+    expect(r.reduce((s, x) => s + x.owedAmountCents, 0)).toBe(1000);
+  });
+
+  it("handles 6-person 16.66% case after balancePercentages", () => {
+    const balanced = balancePercentages(
+      ppl(
+        Array.from({ length: 6 }, (_, j) => [`p${j}`, `P${j}`] as [string, string]),
+      ).map((p) => ({ ...p, value: 1666 })),
+    );
+    const r = splitPercentage(1200, balanced);
+    expect(r.reduce((s, x) => s + x.owedAmountCents, 0)).toBe(1200);
   });
 });
 

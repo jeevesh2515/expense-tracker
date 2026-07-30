@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { computeSplits, type ShareType } from "@/lib/calculations";
+import { computeSplits, balancePercentages, type ShareType } from "@/lib/calculations";
 import { formatCentsCompact, parseAmountToCents } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea, Select, Label, FieldError } from "@/components/ui/Input";
@@ -175,10 +175,55 @@ export function SplitForm({
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (preview.error) {
-      setError(preview.error);
+
+    // Validate totalCents up-front (it doesn't change with auto-balance).
+    let totalCents = 0;
+    try {
+      totalCents = parseAmountToCents(totalAmount || "0");
+    } catch {
+      setError("Enter a valid total amount.");
       return;
     }
+    if (totalCents <= 0) {
+      setError("Total must be greater than zero.");
+      return;
+    }
+
+    let submissionParticipants = participantsForCalc;
+    // Percentage mode: auto-balance remainder bp into the last participant
+    // so the strict server-side check (totalBp === 10000) always passes.
+    // This turns common "33.33 × 3" cases (which sum to 9999 bp) into a
+    // valid 33.34 / 33.33 / 33.33 submission without bothering the user.
+    if (shareType === "percentage" && submissionParticipants.length > 0) {
+      try {
+        submissionParticipants = balancePercentages(submissionParticipants);
+        const displayMap: Record<string, string> = {};
+        for (const p of submissionParticipants) {
+          displayMap[p.personId] = (p.value! / 100).toFixed(2);
+        }
+        setValues((prev) => ({ ...prev, ...displayMap }));
+      } catch (err) {
+        setError((err as Error).message);
+        return;
+      }
+    }
+
+    // Re-validate using the post-balance submission list, NOT the stale
+    // `preview` useMemo. Calling `setValues` schedules a re-render but
+    // `preview.error` is captured from the render this handler was created
+    // for, so the prior implementation incorrectly blocked submissions
+    // where the auto-balance had just fixed the bp sum.
+    try {
+      computeSplits(totalCents, shareType, submissionParticipants);
+    } catch (err) {
+      setError((err as Error).message);
+      return;
+    }
+    if (submissionParticipants.length === 0) {
+      setError("Pick at least one person.");
+      return;
+    }
+
     const formData = new FormData();
     formData.set("title", title);
     formData.set("description", description);
@@ -189,7 +234,7 @@ export function SplitForm({
     formData.set("shareType", shareType);
     formData.set(
       "participants",
-      JSON.stringify(participantsForCalc.map((p) => ({ personId: p.personId, value: p.value }))),
+      JSON.stringify(submissionParticipants.map((p) => ({ personId: p.personId, value: p.value }))),
     );
     if (receiptImage) {
       formData.set("receiptImage", receiptImage);
@@ -385,7 +430,9 @@ export function SplitForm({
           {shareType === "percentage" && (
             <p className="text-xs text-gray-500 mt-3">
               Sum of percentages: {percentSum.toFixed(2)}%{" "}
-              {Math.abs(percentSum - 100) < 0.01 ? "✓" : "(must sum to 100%)"}
+              {Math.abs(percentSum - 100) < 0.01
+                ? "✓"
+                : `(will auto-balance to 100% on save)`}
             </p>
           )}
         </CardBody>

@@ -201,6 +201,70 @@ export function computeSplits(
   }
 }
 
+export type BalancedPercentage = {
+  personId: string;
+  name: string;
+  /** Always defined after `balancePercentages`: integer basis points in [0, 10000]. */
+  value: number;
+};
+
+/**
+ * Normalize percentage basis points so they sum to exactly 10000 (100%).
+ *
+ * Common UX trap: typing "33.33" three times yields 9999 bp, which the
+ * strict splitter rejects. This helper absorbs the rounding remainder into
+ * the LAST participant (preserving input order) so the user always sees a
+ * saveable form. The auto-balance is small (≤ N-1 bp = a tenth of a cent
+ * per person for typical N) and is the only way to make the common
+ * 3-way, 6-way, 9-way equal splits submit successfully.
+ *
+ * Returns participants with `value` updated. Throws if any per-person value
+ * is outside [0, 10000] bp (e.g. negative or > 100%). Refuses to silently
+ * coerce garbage input like "200%" into "100%" — that's a user mistake, not
+ * a rounding issue.
+ */
+export function balancePercentages(
+  participants: SplitParticipant[],
+): BalancedPercentage[] {
+  if (participants.length === 0) return [];
+  for (const p of participants) {
+    if (p.value == null || p.value < 0 || p.value > 10000) {
+      throw new Error(
+        "Each percentage must be between 0% and 100%. Sum must equal 100%.",
+      );
+    }
+  }
+  let total = 0;
+  for (const p of participants) total += p.value!;
+  const remainder = 10000 - total;
+  if (remainder === 0) {
+    // Always return a fresh array of fresh objects so callers can safely
+    // diff before/after and never observe identity-mixed results.
+    return participants.map((p) => ({
+      personId: p.personId,
+      name: p.name,
+      value: p.value!,
+    }));
+  }
+  // Last participant absorbs the entire remainder so the bp sum is exact.
+  // If remainder is negative (over-100%), the same person loses the bp.
+  const last = participants.length - 1;
+  const out: BalancedPercentage[] = participants.map((p, i) =>
+    i === last
+      ? { personId: p.personId, name: p.name, value: p.value! + remainder }
+      : { personId: p.personId, name: p.name, value: p.value! },
+  );
+  // Defensive: refuse to produce any value out of [0, 10000] bp range.
+  for (const p of out) {
+    if (p.value < 0 || p.value > 10000) {
+      throw new Error(
+        "Percentages must be between 0% and 100% per person and sum to 100%.",
+      );
+    }
+  }
+  return out;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Per-transaction payment tracking                                          */
 /* -------------------------------------------------------------------------- */
