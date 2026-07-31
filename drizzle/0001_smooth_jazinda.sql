@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `spending_range` text DEFAULT '90d' NOT NULL;

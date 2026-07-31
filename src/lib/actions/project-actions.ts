@@ -5,8 +5,12 @@ import { redirect } from "next/navigation";
 import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
-import { requireUser } from "@/lib/server-utils";
+import { requireProject, requireUser } from "@/lib/server-utils";
 import { DEFAULT_CURRENCY } from "@/lib/utils";
+import {
+  SPENDING_RANGES,
+  type SpendingRange,
+} from "@/lib/db/schema";
 
 export type ProjectActionState = { error: string | null };
 
@@ -108,4 +112,33 @@ export async function deleteProjectAction(projectId: string): Promise<void> {
     .where(and(eq(projects.id, projectId), eq(projects.userId, user.id)));
   revalidatePath("/dashboard");
   redirect("/dashboard");
+}
+
+/**
+ * Persist the user's spending-over-time range choice for a given project.
+ *
+ * Authenticates + verifies project ownership via `requireProject(projectId)`
+ * (throws on failure — the client's try/catch and Sonner toast handle the
+ * error envelope). Validates the incoming range against the canonical enum,
+ * writes the new value to the row, and revalidates the project page so the
+ * area chart re-renders on the server.
+ */
+export async function setSpendingRangeAction(
+  projectId: string,
+  range: SpendingRange,
+): Promise<ProjectActionState> {
+  await requireProject(projectId);
+  // Range is TS-narrowed by the SpendingRange union; this guard catches
+  // tampered or otherwise out-of-band input from the wire.
+  if (!SPENDING_RANGES.includes(range)) {
+    return { error: "Invalid range" };
+  }
+
+  await db
+    .update(projects)
+    .set({ spendingRange: range })
+    .where(eq(projects.id, projectId));
+
+  revalidatePath(`/projects/${projectId}`);
+  return { error: null };
 }

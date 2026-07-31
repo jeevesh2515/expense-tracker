@@ -12,6 +12,7 @@ import { BalanceView } from "@/components/BalanceView";
 import { ProjectCharts, type CategoryPoint, type PersonNet, type SpendingPoint } from "@/components/ProjectCharts";
 import { ProjectSankey, type SankeyData, type SankeyDataLink, type SankeyDataNode } from "@/components/ProjectSankey";
 import { SettleUpCard, type SettlementCta } from "@/components/SettleUpCard";
+import { SpendingRangeSelector } from "@/components/SpendingRangeSelector";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { colorForString, formatCentsCompact, formatDate } from "@/lib/utils";
@@ -95,24 +96,73 @@ export default async function ProjectOverviewPage({
   // Server-side aggregations for the chart component. Done here (not in the
   // client component) so we serialize only compact summaries, not the full
   // transaction list.
+  //
+  // Bucket config follows the per-project spending range the user picked in
+  // the SpendingRangeSelector (persisted in `projects.spending_range`). The
+  // selection only pivots the spending-over-time trend chart; the category
+  // donut, paid-vs-consumed bars, Sankey, SettleUpCard and BalanceView all
+  // continue to span the full project timeline.
   // -----------------------------------------------------------------------
-  const WEEKS_TO_PLOT = 12;
+  const range = project.spendingRange;
   const now = new Date();
+
+  // Defaults match the legacy 12-week (~84d) chart window — overridden below
+  // per range. `daysPerBucket` controls the granularity (1 = daily, 7 = weekly,
+  // 30 ≈ monthly for very long projects).
+  let bucketCount = 13;
+  let daysPerBucket = 7;
   const start = new Date(now);
-  start.setDate(start.getDate() - (WEEKS_TO_PLOT - 1) * 7);
-  // Floor `start` to the most recent Sunday so weekly buckets align on the
-  // same boundary across renders, giving a stable x-axis regardless of when
-  // the page is re-validated.
-  const startDow = start.getDay(); // 0 = Sunday
-  if (startDow !== 0) start.setDate(start.getDate() - startDow);
+
+  if (range === "7d") {
+    bucketCount = 7;
+    daysPerBucket = 1;
+    start.setDate(start.getDate() - 6);
+  } else if (range === "30d") {
+    bucketCount = 30;
+    daysPerBucket = 1;
+    start.setDate(start.getDate() - 29);
+  } else if (range === "90d") {
+    bucketCount = 13;
+    daysPerBucket = 7;
+    start.setDate(start.getDate() - 12 * 7);
+    // Floor `start` to the most recent Sunday so weekly buckets align on the
+    // same boundary across renders, giving a stable x-axis regardless of
+    // when the page is re-validated.
+    const startDow = start.getDay(); // 0 = Sunday
+    if (startDow !== 0) start.setDate(start.getDate() - startDow);
+  } else {
+    // "all" — weekly (≤6 months) or monthly (>6 months) buckets from the
+    // project's earliest transaction to today. The page query orders rows
+    // desc by `occurredAt` so the last array entry is the earliest.
+    if (projectTransactions.length > 0) {
+      // Mirror the bucket-fill loop's timestamp parse so we use the same
+      // robust `instanceof Date ? getTime() : Number()` idiom instead of
+      // the locale-fragile `Date.parse(String(...))`.
+      const firstTxn = projectTransactions[projectTransactions.length - 1]!;
+      const firstTxnMs =
+        firstTxn.occurredAt instanceof Date
+          ? firstTxn.occurredAt.getTime()
+          : Number(firstTxn.occurredAt);
+      const totalDays = Math.max(
+        1,
+        Math.floor((now.getTime() - firstTxnMs) / 86_400_000),
+      );
+      daysPerBucket = totalDays > 180 ? 30 : 7;
+      bucketCount = Math.max(1, Math.ceil(totalDays / daysPerBucket));
+      start.setTime(firstTxnMs);
+    } else {
+      bucketCount = 1;
+      daysPerBucket = 7;
+    }
+  }
 
   // Build the bucket boundaries as numeric epoch-ms values so the comparison
   // below is unambiguous and timezone-independent. Bucket keys are still
   // produced as YYYY-MM-DD for human-readable x-axis labels.
   const spendingBucketMs: Array<{ key: string; startMs: number }> = [];
-  for (let i = 0; i < WEEKS_TO_PLOT; i++) {
+  for (let i = 0; i < bucketCount; i++) {
     const d = new Date(start);
-    d.setDate(d.getDate() + i * 7);
+    d.setDate(d.getDate() + i * daysPerBucket);
     spendingBucketMs.push({
       key: d.toISOString().slice(0, 10),
       startMs: d.getTime(),
@@ -320,6 +370,11 @@ export default async function ProjectOverviewPage({
         />
       ) : (
         <>
+          <SpendingRangeSelector
+            projectId={project.id}
+            currentRange={project.spendingRange}
+          />
+
           <ProjectCharts
             spending={spending}
             categories={categories}

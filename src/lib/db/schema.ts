@@ -33,6 +33,17 @@ export const projects = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
+    /**
+     * Per-project spending-over-time range preference ("7d" / "30d" / "90d"
+     * / "all"). Persisted per-project so the user's choice follows them
+     * across sessions. Default is "90d" which matches the previous
+     * hard-coded 12-week (~84d) chart window.
+     */
+    spendingRange: text("spending_range", {
+      enum: ["7d", "30d", "90d", "all"],
+    })
+      .notNull()
+      .default("90d"),
     currencyCode: text("currency_code").notNull().default("INR"),
     currencySymbol: text("currency_symbol").notNull().default("₹"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
@@ -184,3 +195,18 @@ export type Split = typeof splits.$inferSelect;
 export type NewSplit = typeof splits.$inferInsert;
 export type Payment = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
+
+/**
+ * Range values for the per-project spending-over-time chart selector.
+ * Mirrors the `spendingRange` enum on the projects table so client code can
+ * share the union without redeclaring it.
+ */
+export type SpendingRange = "7d" | "30d" | "90d" | "all";
+
+/** Ordered list of available ranges. Used by the selector UI. */
+export const SPENDING_RANGES: readonly SpendingRange[] = [
+  "7d",
+  "30d",
+  "90d",
+  "all",
+] as const;
