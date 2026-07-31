@@ -31,6 +31,7 @@ export type OcrPrefill = {
   amount: number | null; // in cents
   date: string | null; // YYYY-MM-DD
   category: string | null;
+  peopleCount?: number | null;
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -131,6 +132,22 @@ export function SplitForm({
       setActiveReceiptImage(receiptImage);
     }
   }, [receiptImage]);
+
+  useEffect(() => {
+    if (!ocrData) return;
+    if (ocrData.title) setTitle(ocrData.title);
+    if (ocrData.category) setCategory(ocrData.category);
+    if (ocrData.date) setOccurredAt(ocrData.date);
+    if (ocrData.amount != null) {
+      const whole = Math.floor(ocrData.amount / 100);
+      const frac = ocrData.amount % 100;
+      setTotalAmount(frac === 0 && whole > 0 ? String(whole) : `${whole}.${frac.toString().padStart(2, "0")}`);
+    }
+    if (ocrData.peopleCount && ocrData.peopleCount > 0 && ocrData.peopleCount <= people.length) {
+      const subset = people.slice(0, ocrData.peopleCount).map((p) => p.id);
+      setSelected(new Set(subset));
+    }
+  }, [ocrData, people]);
 
   const participantsForCalc = useMemo(() => {
     const list = people.filter((p) => selected.has(p.id));

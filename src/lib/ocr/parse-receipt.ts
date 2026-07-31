@@ -15,8 +15,46 @@ export type ExtractedReceipt = {
   date: string | null; // ISO date string (YYYY-MM-DD)
   category: string | null;
   recipient: string | null; // UPI recipient name or VPA
+  peopleCount: number | null; // Detected number of people for split
   rawText: string;
 };
+
+// ============================================================
+// PEOPLE COUNT / SPLIT PATTERNS
+// ============================================================
+
+const PEOPLE_COUNT_PATTERNS: RegExp[] = [
+  /split\s*(?:among|between|with|for)?\s*(\d+)\s*(?:people|persons|friends|members|ways|way|guys)/i,
+  /(\d+)\s*(?:people|persons|friends|members)\s*(?:split|share)?/i,
+  /(\d+)\s*-\s*way\s*split/i,
+  /split\s*(\d+)\s*ways?/i,
+  /for\s*(\d+)\s*(?:people|persons|friends)/i,
+  /(?:divided|shared)\s*(?:by|among|between)\s*(\d+)/i,
+];
+
+const NUMBER_WORDS: Record<string, number> = {
+  two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+};
+
+function extractPeopleCount(text: string): number | null {
+  for (const pattern of PEOPLE_COUNT_PATTERNS) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const num = parseInt(match[1], 10);
+      if (num >= 1 && num <= 50) return num;
+    }
+  }
+  const lower = text.toLowerCase();
+  for (const [word, val] of Object.entries(NUMBER_WORDS)) {
+    if (
+      new RegExp(`split\\s*(?:among|between|with|for)?\\s*${word}`, "i").test(lower) ||
+      new RegExp(`${word}\\s*(?:people|persons|friends|members|ways)`, "i").test(lower)
+    ) {
+      return val;
+    }
+  }
+  return null;
+}
 
 // ============================================================
 // SHARED INDIAN UPI PATTERNS (used across all apps)
@@ -43,8 +81,8 @@ const INDIAN_UPI_DATE_PATTERNS: RegExp[] = [
 
 /** Title patterns - common across all UPI apps */
 const INDIAN_UPI_TITLE_PATTERNS: RegExp[] = [
-  /(?:paid|sent|transferred|payment\s+to)\s+(.+?)(?:\n|$)/i,
-  /(?:to|paid\s*to|sent\s*to|transferred\s*to)\s+(.+?)(?:\n|$)/i,
+  /(?:paid\s+to|sent\s+to|transferred\s+to|payment\s+to)\s+(.+?)(?:\n|$)/i,
+  /(?:paid|sent|transferred)\s+(?:₹|rs\.?|inr)?\s*[\d,]+\.?\d{0,2}\s*(?:to|for)?\s+(.+?)(?:\n|$)/i,
   /(?:from|received\s*from)\s+(.+?)(?:\n|$)/i,
   /(?:vpa|upi\s*id)\s*[:\s]*(.+?)(?:\n|$)/i,
   /(?:payment|money)\s+(?:to|for)\s+(.+?)(?:\n|$)/i,
@@ -52,7 +90,7 @@ const INDIAN_UPI_TITLE_PATTERNS: RegExp[] = [
 
 /** Recipient patterns - for extracting UPI recipient name or VPA */
 const INDIAN_UPI_RECIPIENT_PATTERNS: RegExp[] = [
-  /(?:to|paid\s*to|sent\s*to|transferred\s*to)\s+(.+?)(?:\n|$)/i,
+  /(?:paid\s+to|sent\s+to|transferred\s+to)\s+(.+?)(?:\n|$)/i,
   /(?:vpa|upi\s*id)\s*[:\s]*(.+?)(?:\n|$)/i,
   /@\w+\.?(?:bank|upi|paytm|okaxis|oksbi|okhdfc|okicici|ybl|google|amazon|phonepe|bhim|icici|axis|hdfc|sbi|kotak|pnb|bob|canara|union|indian|yes|federal|indusind)/i,
 ];
@@ -80,6 +118,22 @@ const NOISE_PATTERNS: RegExp[] = [
   /^(upi\s*id|bank\s*account|account\s*number)/i,
   /^(paid\s*on|sent\s*on|received\s*on)/i,
 ];
+
+function cleanTitle(raw: string): string | null {
+  let cleaned = raw.trim();
+  // Strip leading payment verbs like "Paid ₹1,500 to ", "You sent ₹4,500 to"
+  cleaned = cleaned
+    .replace(/^(?:you\s+)?(?:paid|sent|transferred|payment)\s*(?:₹|rs\.?|inr)?\s*[\d,]+\.?\d{0,2}\s*(?:to|for)?\s*/i, "")
+    .trim();
+  // Strip standalone leading "paid to", "sent to"
+  cleaned = cleaned.replace(/^(?:paid\s+to|sent\s+to|transferred\s+to|payment\s+to)\s+/i, "").trim();
+
+  if (cleaned.length < 2 || cleaned.length > 60) return null;
+  if (/^(?:₹|rs\.?|inr)?\s*[\d,]+\.?\d{0,2}$/i.test(cleaned)) return null;
+  if (/^(?:via\s+upi|paid\s+via|upi\s+ref|transaction\s+successful)/i.test(cleaned)) return null;
+  if (NOISE_PATTERNS.some((p) => p.test(cleaned))) return null;
+  return cleaned;
+}
 
 // ============================================================
 // INDIAN CATEGORY KEYWORDS
@@ -356,7 +410,6 @@ function extractDate(text: string): string | null {
   }
   return null;
 }
-
 function extractTitle(lines: string[], text: string): string | null {
   if (isBankStatement(text)) {
     const descPatterns = [
@@ -367,19 +420,16 @@ function extractTitle(lines: string[], text: string): string | null {
     for (const pattern of descPatterns) {
       const match = text.match(pattern);
       if (match && match[1]) {
-        const title = match[1].trim();
-        if (title.length >= 2 && title.length <= 60) {
-          return title;
-        }
+        const cleaned = cleanTitle(match[1]);
+        if (cleaned) return cleaned;
       }
     }
   }
 
   for (let i = 0; i < Math.min(lines.length, 15); i++) {
     const line = lines[i].trim();
-    if (line.length < 2 || line.length > 60) continue;
-    if (NOISE_PATTERNS.some((p) => p.test(line))) continue;
-    return line;
+    const cleaned = cleanTitle(line);
+    if (cleaned) return cleaned;
   }
   return null;
 }
@@ -431,9 +481,9 @@ export function parseReceiptText(rawText: string): ExtractedReceipt {
   for (const pattern of INDIAN_UPI_TITLE_PATTERNS) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      const extracted = match[1].trim();
-      if (extracted.length >= 2 && extracted.length <= 60) {
-        title = extracted;
+      const cleaned = cleanTitle(match[1]);
+      if (cleaned) {
+        title = cleaned;
         break;
       }
     }
@@ -464,6 +514,7 @@ export function parseReceiptText(rawText: string): ExtractedReceipt {
     date: extractDate(text),
     category: extractCategory(text),
     recipient: extractRecipient(text),
+    peopleCount: extractPeopleCount(text),
     rawText,
   };
 }

@@ -12,6 +12,7 @@ type Props = {
     amount: number | null;
     date: string | null;
     category: string | null;
+    peopleCount?: number | null;
   }) => void;
   onImageReady?: (dataUrl: string) => void;
   disabled?: boolean;
@@ -63,7 +64,7 @@ export function ImageUpload({ onExtracted, onImageReady, disabled }: Props) {
         return;
       }
 
-      // Parse the OCR text to extract transaction details
+      // Parse the OCR text to extract transaction details & split count
       const parsed = parseReceiptText(rawText);
 
       onExtracted({
@@ -71,11 +72,19 @@ export function ImageUpload({ onExtracted, onImageReady, disabled }: Props) {
         amount: parsed.amount,
         date: parsed.date,
         category: parsed.category,
+        peopleCount: parsed.peopleCount,
       });
 
       setIsProcessing(false);
       setIsDone(true);
-      toast.success("Receipt scanned! Check the form fields below.");
+
+      const parts: string[] = [];
+      if (parsed.title) parts.push(`"${parsed.title}"`);
+      if (parsed.amount != null) parts.push(`₹${(parsed.amount / 100).toLocaleString()}`);
+      if (parsed.peopleCount) parts.push(`split between ${parsed.peopleCount} people`);
+
+      const summaryStr = parts.length > 0 ? ` (${parts.join(" • ")})` : "";
+      toast.success(`Receipt scanned! Details auto-filled below${summaryStr}`);
     } catch (err) {
       console.error("OCR error:", err);
       toast.error("Failed to process image. Please try again.");
@@ -105,7 +114,7 @@ export function ImageUpload({ onExtracted, onImageReady, disabled }: Props) {
     setIsDone(false);
     setIsProcessing(false);
     onImageReady?.("");
-    onExtracted({ title: null, amount: null, date: null, category: null });
+    onExtracted({ title: null, amount: null, date: null, category: null, peopleCount: null });
   }, [onImageReady, onExtracted]);
 
   if (isDone && preview) {
