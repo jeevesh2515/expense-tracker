@@ -59,6 +59,14 @@ type Props = {
   categories: CategoryPoint[];
   people: PersonNet[];
   currencySymbol: string;
+  /** When true, the donut card collapses to a single-stat callout for the
+   *  user's chosen category; otherwise it renders the full breakdown. The
+   *  trend chart + paid-vs-consumed bars are unaffected. */
+  filterActive?: boolean;
+  /** Display label for the currently selected category filter. Required
+   *  when `filterActive` is true (used in the donut-replacement card and
+   *  the trend empty state). */
+  filterLabel?: string | null;
   /** Optional override of the area-chart brand color; class hook left for future theming. */
   className?: string;
 };
@@ -145,6 +153,49 @@ function ChartEmpty({ message }: { message: string }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Filter focus card (replaces the donut when a category filter is active)   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * When the user narrows the trend chart to a single category, the donut
+ * becomes redundant (it would always be one slice). Swap it for a single-stat
+ * callout that names the picked category, the cents spent in the active
+ * range, and points the user back to the "All" option to restore the donut.
+ *
+ * `filteredCents` is the total the server pre-filtered into the trend chart
+ * (i.e., cents matching the filter in the active range window). Passing it in
+ * rather than recomputing keeps this component's job purely presentational.
+ */
+function FilterFocusCard({
+  filterLabel,
+  filteredCents,
+  currencySymbol,
+}: {
+  filterLabel: string | null;
+  filteredCents: number;
+  currencySymbol: string;
+}) {
+  const label = filterLabel ?? "this category";
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        In this range
+      </div>
+      <div className="font-mono text-2xl font-bold text-gray-900 sm:text-3xl dark:text-white">
+        {formatCentsCompact(filteredCents, currencySymbol)}
+      </div>
+      <div className="mt-1 max-w-[20ch] text-sm font-medium text-gray-700 dark:text-gray-200">
+        {label} makes up this much of your range spend
+      </div>
+      <p className="mt-2 max-w-xs text-xs text-gray-500 dark:text-gray-400">
+        Switch back to All in the Category filter to see the full donut of
+        every category in this project.
+      </p>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Component                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -153,6 +204,8 @@ export function ProjectCharts({
   categories,
   people,
   currencySymbol,
+  filterActive = false,
+  filterLabel = null,
   className,
 }: Props) {
   // Pre-format x-axis labels once so we don't churn the DOM on every render.
@@ -176,6 +229,12 @@ export function ProjectCharts({
     [categories],
   );
 
+  // Build human-readable trend empty-state copy that names the filter the
+  // user actually picked (so they understand why the line is empty).
+  const trendEmptyMessage = filterActive
+    ? `No ${filterLabel ?? "matching"} transactions in this range. Switch to another category or click “All”.`
+    : "Add a transaction or two and these charts will fill in automatically.";
+
   return (
     <div className={["grid grid-cols-1 gap-4 lg:grid-cols-3", className].filter(Boolean).join(" ")}>
       {/* Spending over time — full width on lg */}
@@ -193,7 +252,7 @@ export function ProjectCharts({
         </CardHeader>
         <CardBody className="h-[260px] px-2 pt-2">
           {spendingPlot.length === 0 || totalSpent === 0 ? (
-            <ChartEmpty message="Add a transaction or two and these charts will fill in automatically." />
+            <ChartEmpty message={trendEmptyMessage} />
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
@@ -257,7 +316,13 @@ export function ProjectCharts({
           </div>
         </CardHeader>
         <CardBody className="h-[300px] px-2 pt-2">
-          {categories.length === 0 ||
+          {filterActive ? (
+            <FilterFocusCard
+              filterLabel={filterLabel}
+              filteredCents={totalSpent}
+              currencySymbol={currencySymbol}
+            />
+          ) : categories.length === 0 ||
           categoriesTotal === 0 ||
           // If the donut's only slice is the synthesized Untagged row, the
           // single muted wedge reads as broken UX. Show a CTA instead so the

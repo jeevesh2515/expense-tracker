@@ -10,6 +10,8 @@ import { DEFAULT_CURRENCY } from "@/lib/utils";
 import {
   SPENDING_RANGES,
   type SpendingRange,
+  CATEGORY_FILTER_UNTAGGED,
+  type CategoryFilter,
 } from "@/lib/db/schema";
 
 export type ProjectActionState = { error: string | null };
@@ -137,6 +139,43 @@ export async function setSpendingRangeAction(
   await db
     .update(projects)
     .set({ spendingRange: range })
+    .where(eq(projects.id, projectId));
+
+  revalidatePath(`/projects/${projectId}`);
+  return { error: null };
+}
+
+/**
+ * Persist the user's category filter choice for a given project.
+ *
+ * The category filter is just a label that gates the trend chart + donut:
+ *   `null`                                  → "All" option, no filter
+ *   `CATEGORY_FILTER_UNTAGGED` ("__untagged__")
+ *                                          → show only transactions whose
+ *                                            category is empty/missing
+ *   "<some string the user actually used>"  → show only those transactions
+ *
+ * Authentication + ownership is enforced via `requireProject(projectId)`.
+ * We trust the wire value (the page builds the option list from the project's
+ * actual distinct categories on every read, so a tampered value can only ever
+ * produce a zero-match filter that renders the empty state). The length check
+ * is defense-in-depth against pathological post-bodies.
+ */
+export async function setCategoryFilterAction(
+  projectId: string,
+  filter: CategoryFilter,
+): Promise<ProjectActionState> {
+  await requireProject(projectId);
+  if (filter !== null && typeof filter !== "string") {
+    return { error: "Invalid filter" };
+  }
+  if (typeof filter === "string" && filter.length > 60) {
+    return { error: "Filter too long" };
+  }
+
+  await db
+    .update(projects)
+    .set({ categoryFilter: filter })
     .where(eq(projects.id, projectId));
 
   revalidatePath(`/projects/${projectId}`);

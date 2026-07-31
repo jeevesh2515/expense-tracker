@@ -8,7 +8,10 @@ import {
   computeTransactionBalances,
   computeProjectBalances,
   simplifySettlements,
+  applyCategoryFilter,
+  matchesCategoryFilter,
 } from "./index";
+import { CATEGORY_FILTER_UNTAGGED } from "../db/schema";
 
 const ppl = (arr: Array<[string, string]>) =>
   arr.map(([id, name]) => ({ personId: id, name }));
@@ -567,6 +570,80 @@ describe("simplifySettlements", () => {
       { personId: "b", name: "Bob", netCents: 0, totalInflowCents: 0, totalOutflowCents: 0 },
     ];
     expect(simplifySettlements(balances)).toHaveLength(0);
+  });
+});
+
+describe("matchesCategoryFilter (per-project category filter predicate)", () => {
+  const mk = (category: string | null | undefined) => ({ category });
+
+  it("null filter (the 'All' option) matches every transaction", () => {
+    expect(matchesCategoryFilter(mk("Food"), null)).toBe(true);
+    expect(matchesCategoryFilter(mk(null), null)).toBe(true);
+    expect(matchesCategoryFilter(mk(""), null)).toBe(true);
+  });
+
+  it("Untagged sentinel matches empty string and null/undefined", () => {
+    expect(matchesCategoryFilter(mk(""), CATEGORY_FILTER_UNTAGGED)).toBe(true);
+    expect(matchesCategoryFilter(mk(null), CATEGORY_FILTER_UNTAGGED)).toBe(true);
+    expect(matchesCategoryFilter(mk(undefined), CATEGORY_FILTER_UNTAGGED)).toBe(true);
+    expect(matchesCategoryFilter(mk("   "), CATEGORY_FILTER_UNTAGGED)).toBe(true);
+  });
+
+  it("Untagged sentinel does NOT match a real category, even if it contains the word", () => {
+    expect(matchesCategoryFilter(mk("Food"), CATEGORY_FILTER_UNTAGGED)).toBe(false);
+    expect(matchesCategoryFilter(mk("Untagged"), CATEGORY_FILTER_UNTAGGED)).toBe(false);
+  });
+
+  it("exact category match is case-sensitive", () => {
+    expect(matchesCategoryFilter(mk("Food"), "Food")).toBe(true);
+    expect(matchesCategoryFilter(mk("food"), "Food")).toBe(false);
+    expect(matchesCategoryFilter(mk("FOOD"), "Food")).toBe(false);
+  });
+
+  it("trims whitespace on both sides", () => {
+    expect(matchesCategoryFilter(mk(" Food "), "Food")).toBe(true);
+    expect(matchesCategoryFilter(mk("Food"), " Food ")).toBe(true);
+  });
+
+  it("does not fuzzy match", () => {
+    expect(matchesCategoryFilter(mk("Food & Drink"), "Food")).toBe(false);
+    expect(matchesCategoryFilter(mk("Travel/Food"), "Food")).toBe(false);
+  });
+});
+
+describe("applyCategoryFilter", () => {
+  const txns = [
+    { id: "t1", category: "Food", amountCents: 1000 },
+    { id: "t2", category: "Travel", amountCents: 2000 },
+    { id: "t3", category: null, amountCents: 3000 },
+    { id: "t4", category: "", amountCents: 4000 },
+    { id: "t5", category: "Food", amountCents: 5000 },
+  ];
+
+  it("null filter returns the same reference (caller can cheap-compare)", () => {
+    expect(applyCategoryFilter(txns, null)).toBe(txns);
+  });
+
+  it("exact filter returns a fresh array with only matches", () => {
+    const r = applyCategoryFilter(txns, "Food");
+    expect(r).not.toBe(txns);
+    expect(r.map((t) => t.id)).toEqual(["t1", "t5"]);
+  });
+
+  it("Untagged sentinel returns only transactions without a category", () => {
+    const r = applyCategoryFilter(txns, CATEGORY_FILTER_UNTAGGED);
+    expect(r.map((t) => t.id)).toEqual(["t3", "t4"]);
+  });
+
+  it("never mutates the input array", () => {
+    const snapshot = txns.map((t) => t.id);
+    applyCategoryFilter(txns, "Food");
+    applyCategoryFilter(txns, CATEGORY_FILTER_UNTAGGED);
+    expect(txns.map((t) => t.id)).toEqual(snapshot);
+  });
+
+  it("zero matches returns an empty array, not null", () => {
+    expect(applyCategoryFilter(txns, "DoesNotExist")).toEqual([]);
   });
 });
 

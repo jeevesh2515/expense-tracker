@@ -2,9 +2,16 @@ import Link from "next/link";
 import { eq, desc, inArray, and } from "drizzle-orm";
 import { Plus, Receipt } from "lucide-react";
 import { db } from "@/lib/db";
-import { people, transactions, splits, payments } from "@/lib/db/schema";
+import {
+  people,
+  transactions,
+  splits,
+  payments,
+  CATEGORY_FILTER_UNTAGGED,
+} from "@/lib/db/schema";
 import { requireProject } from "@/lib/server-utils";
 import {
+  applyCategoryFilter,
   computeProjectBalances,
   simplifySettlements,
 } from "@/lib/calculations";
@@ -13,6 +20,7 @@ import { ProjectCharts, type CategoryPoint, type PersonNet, type SpendingPoint }
 import { ProjectSankey, type SankeyData, type SankeyDataLink, type SankeyDataNode } from "@/components/ProjectSankey";
 import { SettleUpCard, type SettlementCta } from "@/components/SettleUpCard";
 import { SpendingRangeSelector } from "@/components/SpendingRangeSelector";
+import { CategoryFilterSelector, type CategoryFilterOption } from "@/components/CategoryFilterSelector";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { colorForString, formatCentsCompact, formatDate } from "@/lib/utils";
@@ -91,6 +99,27 @@ export default async function ProjectOverviewPage({
       cents: s.cents,
     };
   });
+
+  // -----------------------------------------------------------------------
+  // Per-project category filter (the second selector). `null` (or missing)
+  // means "All" (no filter applied). A non-null value is either an exact
+  // transaction.category string the user has actually used in this
+  // project, or the `CATEGORY_FILTER_UNTAGGED` sentinel for txns missing
+  // a category. Only trend chart + donut react to the filter; Sankey,
+  // SettleUpCard, BalanceView, and the people-bars keep full project
+  // totals so the user always sees the underlying state of the project.
+  // -----------------------------------------------------------------------
+  const activeFilter = project.categoryFilter ?? null;
+  const filterActive = activeFilter !== null;
+  const filteredTxns = applyCategoryFilter(projectTransactions, activeFilter);
+  // Display label for the active filter — surfaces in single-stat card
+  // and empty-state copy so the user knows what they actually picked.
+  const filterLabel =
+    activeFilter === null
+      ? null
+      : activeFilter === CATEGORY_FILTER_UNTAGGED
+        ? "Untagged transactions"
+        : activeFilter;
 
   // -----------------------------------------------------------------------
   // Server-side aggregations for the chart component. Done here (not in the
@@ -172,7 +201,7 @@ export default async function ProjectOverviewPage({
   const spendingBuckets = new Map<string, number>(
     spendingBucketMs.map((b) => [b.key, 0]),
   );
-  for (const t of projectTransactions) {
+  for (const t of filteredTxns) {
     const ts =
       t.occurredAt instanceof Date ? t.occurredAt.getTime() : Number(t.occurredAt);
     if (!Number.isFinite(ts)) continue;
@@ -223,6 +252,32 @@ export default async function ProjectOverviewPage({
         : { name, cents };
     },
   ).sort((a, b) => b.cents - a.cents);
+
+  // Server-prepared options for the CategoryFilterSelector. Always lead
+  // with "All"; then surface each real user category spend-descending; if
+  // the project has transactions missing a category, also surface an
+  // explicit "Untagged" lane (the same row the donut renders muted). The
+  // server-built totals show in the chip so the user can see which lane
+  // has the most spend without picking it first.
+  const filterOptions: CategoryFilterOption[] = [
+    {
+      value: null,
+      label: "All",
+      totalLabel: formatCentsCompact(
+        projectTransactions.reduce((s, t) => s + t.totalAmountCents, 0),
+        project.currencySymbol,
+      ),
+    },
+    ...categories.map((c) => {
+      const value =
+        c.untagged ? CATEGORY_FILTER_UNTAGGED : c.name;
+      return {
+        value,
+        label: c.name,
+        totalLabel: formatCentsCompact(c.cents, project.currencySymbol),
+      };
+    }),
+  ];
 
   const personByIdForCharts = new Map(projectPeople.map((p) => [p.id, p]));
   const paidByPersonAt = projectTransactions.reduce<Map<string, number>>(
@@ -370,16 +425,25 @@ export default async function ProjectOverviewPage({
         />
       ) : (
         <>
-          <SpendingRangeSelector
-            projectId={project.id}
-            currentRange={project.spendingRange}
-          />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <SpendingRangeSelector
+              projectId={project.id}
+              currentRange={project.spendingRange}
+            />
+            <CategoryFilterSelector
+              projectId={project.id}
+              currentFilter={activeFilter}
+              options={filterOptions}
+            />
+          </div>
 
           <ProjectCharts
             spending={spending}
             categories={categories}
             people={peopleForBars}
             currencySymbol={project.currencySymbol}
+            filterActive={filterActive}
+            filterLabel={filterLabel}
           />
 
           {sankeyData.links.length > 0 && (

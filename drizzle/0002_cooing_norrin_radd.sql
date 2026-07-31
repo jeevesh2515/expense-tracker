@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `category_filter` text;

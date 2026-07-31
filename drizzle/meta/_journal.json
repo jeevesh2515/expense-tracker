@@ -15,6 +15,13 @@
       "when": 1785462038988,
       "tag": "0001_smooth_jazinda",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785462623877,
+      "tag": "0002_cooing_norrin_radd",
+      "breakpoints": true
     }
   ]
 }

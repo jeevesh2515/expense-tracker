@@ -44,6 +44,14 @@ export const projects = sqliteTable(
     })
       .notNull()
       .default("90d"),
+    /**
+     * Per-project category filter for the trend chart + donut. Nullable:
+     * `null` means "All" (no filter). A non-null value is either an exact
+     * transaction.category string the user actually used in this project,
+     * or the sentinel `CATEGORY_FILTER_UNTAGGED` to match transactions with
+     * an empty/missing category. Persisted so the choice follows the user.
+     */
+    categoryFilter: text("category_filter"),
     currencyCode: text("currency_code").notNull().default("INR"),
     currencySymbol: text("currency_symbol").notNull().default("₹"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
@@ -210,3 +218,20 @@ export const SPENDING_RANGES: readonly SpendingRange[] = [
   "90d",
   "all",
 ] as const;
+
+/**
+ * Per-project category filter value. `null` means "All" (no filter
+ * applied). A non-null string is either an exact transaction.category name
+ * (validated server-side against the project's actual distinct categories)
+ * or the `CATEGORY_FILTER_UNTAGGED` sentinel which matches transactions
+ * with an empty/missing category.
+ */
+export type CategoryFilter = string | null;
+
+/**
+ * Magic-string sentinel for "show me transactions missing a category".
+ * The page builds a synthesized "Untagged" total the user actually sees;
+ * this constant is the wire/storage representation so the client and
+ * server agree without leaking the display label into the data layer.
+ */
+export const CATEGORY_FILTER_UNTAGGED = "__untagged__" as const;

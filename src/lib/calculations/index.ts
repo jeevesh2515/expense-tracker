@@ -468,6 +468,60 @@ export function computeProjectBalances(params: {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Category filter                                                            */
+/* -------------------------------------------------------------------------- */
+
+import { CATEGORY_FILTER_UNTAGGED } from "../db/schema";
+
+export type CategoryFilterInput = {
+  /** Transaction category string. `null`/`undefined`/`""` are all "untagged". */
+  category: string | null | undefined;
+};
+
+/**
+ * Decide whether a transaction survives a project's category filter.
+ *
+ *   filter === null         → keep everything (the "All" option).
+ *   filter === CATEGORY_FILTER_UNTAGGED
+ *                            → only keep transactions whose category is
+ *                              empty/missing (the synthesized "Untagged" lane).
+ *   filter === "<some str>" → only keep transactions whose category exactly
+ *                              matches the filter string.
+ *
+ * Matching is case-sensitive and trims both sides: a stored category "Food "
+ * should not match the filter "Food", and vice-versa. Empty strings and
+ * nullish values are treated identically (they are "untagged").
+ *
+ * Exported for testing and for any future server-side aggregation surface
+ * (export, settlement detail, etc.) that needs the same predicate.
+ */
+export function matchesCategoryFilter(
+  txn: CategoryFilterInput,
+  filter: string | null,
+): boolean {
+  if (filter === null) return true;
+  const txCat = (txn.category ?? "").trim();
+  if (filter === CATEGORY_FILTER_UNTAGGED) {
+    return txCat.length === 0;
+  }
+  return txCat === filter.trim();
+}
+
+/**
+ * Pure helper: filter a list of transactions by the project's category
+ * filter. Returns a fresh array when filtering is active; the original
+ * reference is returned when no filter is set so the caller can cheap-skim
+ * "did anything actually change?".
+ */
+export function applyCategoryFilter<T extends CategoryFilterInput>(
+  txns: T[],
+  filter: string | null,
+): T[] {
+  if (filter === null) return txns;
+  return txns.filter((t) => matchesCategoryFilter(t, filter));
+}
+
+/* -------------------------------------------------------------------------- */
 /* Settlement simplification (greedy min-cashflow)                            */
 /* -------------------------------------------------------------------------- */
 
