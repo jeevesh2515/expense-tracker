@@ -10,9 +10,10 @@ import {
 } from "@/lib/calculations";
 import { BalanceView } from "@/components/BalanceView";
 import { ProjectCharts, type CategoryPoint, type PersonNet, type SpendingPoint } from "@/components/ProjectCharts";
+import { SettleUpCard, type SettlementCta } from "@/components/SettleUpCard";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { formatCentsCompact, formatDate } from "@/lib/utils";
+import { colorForString, formatCentsCompact, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +71,24 @@ export default async function ProjectOverviewPage({
 
   // Compute settlement simplification against project balances alone.
   const settlements = simplifySettlements(balances.people);
+
+  // Top 1-3 highest-priority settlements for the "Settle up" CTA card.
+  // The simplifySettlements result is already sorted descending by cents,
+  // so a slice is both the priority order and the cardinality cap.
+  const personById = new Map(projectPeople.map((p) => [p.id, p]));
+  const topSettlements: SettlementCta[] = settlements.slice(0, 3).map((s) => {
+    const fromRecord = personById.get(s.fromId);
+    const toRecord = personById.get(s.toId);
+    return {
+      fromId: s.fromId,
+      fromName: s.fromName,
+      fromColorHex: fromRecord?.colorHex ?? colorForString(s.fromName),
+      toId: s.toId,
+      toName: s.toName,
+      toColorHex: toRecord?.colorHex ?? colorForString(s.toName),
+      cents: s.cents,
+    };
+  });
 
   // -----------------------------------------------------------------------
   // Server-side aggregations for the chart component. Done here (not in the
@@ -206,6 +225,14 @@ export default async function ProjectOverviewPage({
             people={peopleForBars}
             currencySymbol={project.currencySymbol}
           />
+
+          {topSettlements.length > 0 && (
+            <SettleUpCard
+              projectId={project.id}
+              settlements={topSettlements}
+              currencySymbol={project.currencySymbol}
+            />
+          )}
 
           <BalanceView
             balances={balances.people}
