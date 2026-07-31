@@ -22,6 +22,7 @@ declare module "next-auth/jwt" {
 }
 
 export const authOptions: NextAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET ?? "default-expense-tracker-secret-key-change-in-prod",
   providers: [
     CredentialsProvider({
       name: "Email + Password",
@@ -33,15 +34,22 @@ export const authOptions: NextAuthOptions = {
         const email = creds?.email?.trim().toLowerCase();
         const password = creds?.password ?? "";
         if (!email || !password) return null;
-        const user = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, email))
-          .get();
-        if (!user) return null;
-        const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) return null;
-        return { id: user.id, email: user.email, name: user.name };
+        try {
+          const { ensureSchema } = await import("@/lib/db/migrate");
+          await ensureSchema();
+          const user = await db
+            .select()
+            .from(users)
+            .where(eq(users.email, email))
+            .get();
+          if (!user) return null;
+          const ok = await bcrypt.compare(password, user.passwordHash);
+          if (!ok) return null;
+          return { id: user.id, email: user.email, name: user.name };
+        } catch (err) {
+          console.error("Auth error:", err);
+          return null;
+        }
       },
     }),
   ],

@@ -26,6 +26,8 @@ export async function ensureSchema() {
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
+      spending_range TEXT NOT NULL DEFAULT '90d',
+      category_filter TEXT,
       currency_code TEXT NOT NULL DEFAULT 'INR',
       currency_symbol TEXT NOT NULL DEFAULT '₹',
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -53,6 +55,7 @@ export async function ensureSchema() {
       currency_code TEXT NOT NULL,
       currency_symbol TEXT NOT NULL,
       occurred_at INTEGER NOT NULL,
+      receipt_image TEXT,
       created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
     CREATE INDEX IF NOT EXISTS transactions_project_idx ON transactions(project_id);
@@ -81,6 +84,19 @@ export async function ensureSchema() {
     CREATE INDEX IF NOT EXISTS payments_txn_idx ON payments(transaction_id);
     CREATE INDEX IF NOT EXISTS payments_person_idx ON payments(person_id);
   `);
+
+  const alterStatements = [
+    `ALTER TABLE projects ADD COLUMN spending_range TEXT NOT NULL DEFAULT '90d'`,
+    `ALTER TABLE projects ADD COLUMN category_filter TEXT`,
+    `ALTER TABLE transactions ADD COLUMN receipt_image TEXT`,
+  ];
+  for (const stmt of alterStatements) {
+    try {
+      await rawDb.execute(stmt);
+    } catch {
+      // Column already exists
+    }
+  }
 }
 
 if (require.main === module) {

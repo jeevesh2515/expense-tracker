@@ -57,8 +57,9 @@ export function ImageUpload({ onExtracted, onImageReady, disabled }: Props) {
       const rawText = data.text;
 
       if (!rawText || rawText.trim().length < 5) {
-        toast.error("Could not read text from this image. Try a clearer screenshot.");
+        toast.info("Screenshot attached! OCR text wasn't clear, please enter details manually.");
         setIsProcessing(false);
+        setIsDone(true);
         return;
       }
 
@@ -80,7 +81,7 @@ export function ImageUpload({ onExtracted, onImageReady, disabled }: Props) {
       toast.error("Failed to process image. Please try again.");
       setIsProcessing(false);
     }
-  }, [onExtracted]);
+  }, [onExtracted, onImageReady]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -103,7 +104,9 @@ export function ImageUpload({ onExtracted, onImageReady, disabled }: Props) {
     setPreview(null);
     setIsDone(false);
     setIsProcessing(false);
-  }, []);
+    onImageReady?.("");
+    onExtracted({ title: null, amount: null, date: null, category: null });
+  }, [onImageReady, onExtracted]);
 
   if (isDone && preview) {
     return (

@@ -92,6 +92,7 @@ export default async function EditTransactionPage({
               shareValue: s.shareValue,
               owedAmountCents: s.owedAmountCents,
             }))}
+            receiptImage={txn.receiptImage}
           />
         </CardBody>
       </Card>

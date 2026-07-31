@@ -14,16 +14,26 @@ import * as schema from "./schema";
  * Vercel where the filesystem is read-only / ephemeral.
  */
 const rawUrl = process.env.TURSO_DATABASE_URL?.trim();
+const isVercel = !!process.env.VERCEL;
+
+const defaultPath = isVercel
+  ? "/tmp/expense-tracker.db"
+  : (process.env.DATABASE_LOCAL_PATH ?? "./data/expense-tracker.db");
+
 const url =
   rawUrl && (rawUrl.startsWith("libsql://") || rawUrl.startsWith("https://") || rawUrl.startsWith("file:"))
     ? rawUrl
-    : `file:${process.env.DATABASE_LOCAL_PATH ?? "./data/expense-tracker.db"}`;
+    : `file:${defaultPath}`;
 const authToken = process.env.TURSO_AUTH_TOKEN;
 
-// Local dev only: make sure the parent directory exists for the sqlite file.
+// Make sure parent directory exists for local sqlite file safely
 if (url.startsWith("file:")) {
-  const localPath = url.slice("file:".length);
-  mkdirSync(dirname(localPath), { recursive: true });
+  try {
+    const localPath = url.slice("file:".length);
+    mkdirSync(dirname(localPath), { recursive: true });
+  } catch (err) {
+    console.warn("Could not create DB directory:", err);
+  }
 }
 
 const client = createClient({ url, authToken });

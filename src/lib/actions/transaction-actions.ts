@@ -224,7 +224,7 @@ export async function updateTransactionAction(
         category: category || null,
         totalAmountCents: totalCents,
         occurredAt: new Date(occurredAt),
-        ...(receiptImage ? { receiptImage } : {}),
+        receiptImage: receiptImage || null,
       })
       .where(eq(transactions.id, txnId))
       .run();

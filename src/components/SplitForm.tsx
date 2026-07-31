@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, useEffect } from "react";
+import { FileImage } from "lucide-react";
+import { ImageUpload } from "@/components/ImageUpload";
 import { computeSplits, balancePercentages, type ShareType } from "@/lib/calculations";
 import { formatCentsCompact, parseAmountToCents } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -122,6 +124,14 @@ export function SplitForm({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const [activeReceiptImage, setActiveReceiptImage] = useState<string | null>(receiptImage ?? null);
+
+  useEffect(() => {
+    if (receiptImage !== undefined) {
+      setActiveReceiptImage(receiptImage);
+    }
+  }, [receiptImage]);
+
   const participantsForCalc = useMemo(() => {
     const list = people.filter((p) => selected.has(p.id));
     return list.map((p) => {
@@ -151,8 +161,30 @@ export function SplitForm({
     }
     if (totalCents <= 0)
       return { error: "Total must be greater than zero.", rows: [] as ReturnType<typeof computeSplits>, totalCents };
+
+    let effectiveParticipants = participantsForCalc;
+
+    if (shareType === "percentage" && participantsForCalc.length > 0) {
+      let totalBp = 0;
+      for (const p of participantsForCalc) totalBp += p.value;
+
+      if (totalBp !== 10000) {
+        if (Math.abs(totalBp - 10000) <= 200) {
+          try {
+            effectiveParticipants = balancePercentages(participantsForCalc);
+          } catch {
+            const sumPct = (totalBp / 100).toFixed(2);
+            return { error: `Sum of percentages is ${sumPct}% (must equal 100%).`, rows: [] as ReturnType<typeof computeSplits>, totalCents };
+          }
+        } else {
+          const sumPct = (totalBp / 100).toFixed(2);
+          return { error: `Sum of percentages is ${sumPct}% (must equal 100%).`, rows: [] as ReturnType<typeof computeSplits>, totalCents };
+        }
+      }
+    }
+
     try {
-      const rows = computeSplits(totalCents, shareType, participantsForCalc);
+      const rows = computeSplits(totalCents, shareType, effectiveParticipants);
       return { error: null as string | null, rows, totalCents };
     } catch (err) {
       return { error: (err as Error).message, rows: [] as ReturnType<typeof computeSplits>, totalCents };
@@ -190,10 +222,6 @@ export function SplitForm({
     }
 
     let submissionParticipants = participantsForCalc;
-    // Percentage mode: auto-balance remainder bp into the last participant
-    // so the strict server-side check (totalBp === 10000) always passes.
-    // This turns common "33.33 × 3" cases (which sum to 9999 bp) into a
-    // valid 33.34 / 33.33 / 33.33 submission without bothering the user.
     if (shareType === "percentage" && submissionParticipants.length > 0) {
       try {
         submissionParticipants = balancePercentages(submissionParticipants);
@@ -208,11 +236,6 @@ export function SplitForm({
       }
     }
 
-    // Re-validate using the post-balance submission list, NOT the stale
-    // `preview` useMemo. Calling `setValues` schedules a re-render but
-    // `preview.error` is captured from the render this handler was created
-    // for, so the prior implementation incorrectly blocked submissions
-    // where the auto-balance had just fixed the bp sum.
     try {
       computeSplits(totalCents, shareType, submissionParticipants);
     } catch (err) {
@@ -236,9 +259,7 @@ export function SplitForm({
       "participants",
       JSON.stringify(submissionParticipants.map((p) => ({ personId: p.personId, value: p.value }))),
     );
-    if (receiptImage) {
-      formData.set("receiptImage", receiptImage);
-    }
+    formData.set("receiptImage", activeReceiptImage ?? "");
 
     startTransition(async () => {
       let res: TransactionActionState | undefined;
@@ -325,6 +346,42 @@ export function SplitForm({
           />
         </div>
       </div>
+
+      {/* Screenshot / Receipt Image Section */}
+      {activeReceiptImage ? (
+        <div className="border rounded-lg p-4 bg-gray-50 dark:bg-gray-800/50 space-y-2 border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+              <FileImage className="w-4 h-4 text-brand-500" /> Attached Screenshot / Receipt
+            </span>
+            <button
+              type="button"
+              onClick={() => setActiveReceiptImage(null)}
+              className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium"
+            >
+              Remove screenshot
+            </button>
+          </div>
+          <img
+            src={activeReceiptImage}
+            alt="Transaction screenshot preview"
+            className="max-h-48 rounded-lg border border-gray-200 dark:border-gray-700 object-contain"
+          />
+        </div>
+      ) : isEditMode ? (
+        <div className="space-y-2">
+          <Label>Screenshot / Receipt image (optional)</Label>
+          <ImageUpload
+            onImageReady={(dataUrl) => setActiveReceiptImage(dataUrl)}
+            onExtracted={(data) => {
+              if (data.title && !title) setTitle(data.title);
+              if (data.amount && !totalAmount) setTotalAmount((data.amount / 100).toFixed(2));
+              if (data.category && !category) setCategory(data.category);
+              if (data.date && !occurredAt) setOccurredAt(data.date);
+            }}
+          />
+        </div>
+      ) : null}
 
       <div>
         <Label>Split mode</Label>
