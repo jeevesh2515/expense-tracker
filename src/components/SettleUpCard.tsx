@@ -130,18 +130,18 @@ export function SettleUpCard({
           return (
             <div
               key={key}
-              className="flex items-center gap-3 p-3 rounded-lg border transition-all bg-amber-50 dark:bg-amber-900/15 border-amber-200/70 dark:border-amber-800/60"
+              className="flex items-center gap-3 p-3.5 rounded-xl border bg-gradient-to-r from-amber-50/90 to-orange-50/70 dark:from-amber-950/30 dark:to-orange-950/20 border-amber-200/80 dark:border-amber-800/60 hover:border-amber-400 dark:hover:border-amber-600 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group"
             >
-              <Avatar name={row.fromName} color={row.fromColorHex} size="sm" />
-              <span className="font-medium text-gray-900 dark:text-white truncate min-w-0 flex-1">
+              <Avatar name={row.fromName} color={row.fromColorHex} size="sm" className="group-hover:scale-105 transition-transform" />
+              <span className="font-semibold text-gray-900 dark:text-white truncate min-w-0 flex-1">
                 {row.fromName}
               </span>
-              <ArrowRight className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <Avatar name={row.toName} color={row.toColorHex} size="sm" />
-              <span className="font-medium text-gray-900 dark:text-white truncate min-w-0 flex-1">
+              <ArrowRight className="w-4 h-4 text-amber-600 dark:text-amber-400 group-hover:translate-x-1 shrink-0 transition-transform duration-200" />
+              <Avatar name={row.toName} color={row.toColorHex} size="sm" className="group-hover:scale-105 transition-transform" />
+              <span className="font-semibold text-gray-900 dark:text-white truncate min-w-0 flex-1">
                 {row.toName}
               </span>
-              <span className="ml-auto font-semibold text-amber-700 dark:text-amber-400 tabular-nums shrink-0">
+              <span className="ml-auto font-bold text-amber-700 dark:text-amber-300 tabular-nums shrink-0 text-sm sm:text-base">
                 {formatCentsCompact(row.cents, currencySymbol)}
               </span>
               <Button
@@ -149,10 +149,10 @@ export function SettleUpCard({
                 size="sm"
                 variant="primary"
                 onClick={() => settle(row)}
-                className="shrink-0"
+                className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 transition-all text-xs font-semibold px-3 py-1.5"
               >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Mark settled
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                Record payment
               </Button>
             </div>
           );

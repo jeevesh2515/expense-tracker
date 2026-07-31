@@ -4,9 +4,10 @@ export type AvatarProps = {
   name: string;
   color: string;
   size?: "sm" | "md" | "lg";
+  className?: string;
 };
 
-export function Avatar({ name, color, size = "md" }: AvatarProps) {
+export function Avatar({ name, color, size = "md", className }: AvatarProps) {
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -21,8 +22,9 @@ export function Avatar({ name, color, size = "md" }: AvatarProps) {
   return (
     <div
       className={cn(
-        "rounded-full flex items-center justify-center font-semibold text-white shrink-0",
+        "rounded-full flex items-center justify-center font-semibold text-white shrink-0 shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md select-none",
         sizes[size],
+        className,
       )}
       style={{ backgroundColor: color }}
       title={name}

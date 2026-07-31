@@ -95,25 +95,25 @@ export default async function DashboardPage() {
               <Link
                 key={p.id}
                 href={`/projects/${p.id}`}
-                className="card hover:shadow-md hover:border-brand-300 dark:hover:border-brand-700 transition-all duration-200 group animate-slide-up"
+                className="card card-hover hover:border-brand-500/50 dark:hover:border-brand-400/50 hover:shadow-xl hover:shadow-brand-500/10 hover:-translate-y-1 transition-all duration-200 ease-out group animate-slide-up"
                 style={{ animationDelay: `${i * 60}ms` }}
               >
                 <div className="p-5">
                   <div className="flex items-start justify-between mb-2">
-                    <h3 className="font-semibold text-gray-900 dark:text-white group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors">
+                    <h3 className="font-bold text-gray-900 dark:text-white group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors text-base">
                       {p.name}
                     </h3>
-                    <span className="badge badge-brand">{p.currencyCode}</span>
+                    <span className="badge badge-brand group-hover:scale-105 transition-transform">{p.currencyCode}</span>
                   </div>
                   {p.description && (
                     <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
                       {p.description}
                     </p>
                   )}
-                  <div className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                    <Calendar className="w-3 h-3" />
+                  <div className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-800/60">
+                    <Calendar className="w-3.5 h-3.5 text-gray-400 group-hover:text-brand-500 transition-colors" />
                     Created {formatDate(p.createdAt)}
-                    <ChevronRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ChevronRight className="w-4 h-4 ml-auto text-gray-400 group-hover:text-brand-500 group-hover:translate-x-1 opacity-0 group-hover:opacity-100 transition-all duration-200" />
                   </div>
                 </div>
               </Link>

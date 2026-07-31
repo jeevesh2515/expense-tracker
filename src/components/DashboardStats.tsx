@@ -37,14 +37,16 @@ export function DashboardStats({ totalProjects, totalTransactions, totalPeople, 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.08, duration: 0.4 }}
-          className="card p-4 hover:shadow-md transition-shadow"
+          className="card card-hover p-4 hover:-translate-y-1 hover:border-brand-300 dark:hover:border-brand-700 transition-all duration-200 group cursor-default"
         >
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl ${s.bg}`}>
+            <div className={`p-2.5 rounded-xl ${s.bg} group-hover:scale-110 transition-transform duration-200`}>
               <s.icon className={`w-5 h-5 ${s.color}`} />
             </div>
             <div>
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">{values[s.key]}</div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-white group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
+                {values[s.key]}
+              </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">{s.label}</div>
             </div>
           </div>

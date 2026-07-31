@@ -26,59 +26,73 @@
   h1 { @apply text-2xl font-bold tracking-tight; }
   h2 { @apply text-xl font-semibold tracking-tight; }
   h3 { @apply text-lg font-semibold; }
-  a { @apply text-brand-600 hover:underline; }
+  a {
+    @apply text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 transition-colors duration-200 no-underline hover:underline decoration-brand-400/60 underline-offset-4;
+  }
   input, textarea, select, button {
     @apply font-sans;
   }
   table { @apply border-collapse; }
   /* Subtle scrollbar polish. */
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-gray-700 rounded-full; }
-  ::-webkit-scrollbar-thumb:hover { @apply bg-gray-400 dark:bg-gray-600; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { @apply bg-gray-300 dark:bg-gray-700 rounded-full hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors; }
 }
 
 @layer components {
   .card {
-    @apply bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm;
+    @apply bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm
+           transition-all duration-200 ease-out;
+  }
+  .card-hover {
+    @apply hover:border-brand-500/40 hover:shadow-lg hover:shadow-brand-500/5 hover:-translate-y-0.5;
   }
   .card-header {
-    @apply px-5 py-4 border-b border-gray-100 flex items-center justify-between;
+    @apply px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between;
   }
-  .card-body { @apply p-5; }
+  .card-body { @apply p-6; }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
-           transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-           focus:outline-none focus:ring-2 focus:ring-brand-300 focus:ring-offset-1
-           active:scale-[0.98];
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold
+           transition-all duration-200 ease-out disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none
+           focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:ring-offset-2 dark:focus:ring-offset-gray-900
+           active:scale-[0.98] select-none cursor-pointer;
   }
   .btn-primary {
-    @apply bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm hover:shadow-md;
+    @apply bg-gradient-to-r from-brand-600 to-indigo-600 text-white
+           hover:from-brand-500 hover:to-indigo-500 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-brand-500/25
+           active:translate-y-0 active:scale-[0.98];
   }
   .btn-secondary {
-    @apply bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700;
+    @apply bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700
+           hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-600
+           hover:text-gray-900 dark:hover:text-white hover:-translate-y-0.5 hover:shadow-sm
+           active:translate-y-0 active:scale-[0.98];
   }
   .btn-danger {
-    @apply bg-red-600 text-white hover:bg-red-700 shadow-sm hover:shadow-md;
+    @apply bg-gradient-to-r from-red-600 to-rose-600 text-white
+           hover:from-red-500 hover:to-rose-500 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-red-500/25
+           active:translate-y-0 active:scale-[0.98];
   }
   .btn-ghost {
-    @apply text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800;
+    @apply text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-brand-600 dark:hover:text-brand-400
+           hover:scale-[1.02] active:scale-[0.98];
   }
 
   .input, .textarea, .select {
-    @apply w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600
+    @apply w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700
            bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
            text-sm placeholder-gray-400 dark:placeholder-gray-500
-           focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-500
-           transition-colors;
+           hover:border-gray-300 dark:hover:border-gray-600
+           focus:outline-none focus:ring-4 focus:ring-brand-500/15 focus:border-brand-500 dark:focus:border-brand-400
+           transition-all duration-200;
   }
   .label {
-    @apply block text-sm font-medium text-gray-700 mb-1.5;
+    @apply block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5;
   }
 
   .badge {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
-           transition-colors;
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold
+           transition-all duration-200 select-none hover:scale-105;
   }
 
   /* Animation utilities */
@@ -103,9 +117,9 @@
   .animate-scale-in {
     animation: scaleIn 0.3s ease-out forwards;
   }
-  .badge-green { @apply bg-emerald-100 text-emerald-700; }
-  .badge-amber { @apply bg-amber-100 text-amber-700; }
-  .badge-red   { @apply bg-red-100 text-red-700; }
-  .badge-gray  { @apply bg-gray-100 text-gray-700; }
-  .badge-brand { @apply bg-brand-100 text-brand-700; }
+  .badge-green { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800; }
+  .badge-amber { @apply bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800; }
+  .badge-red   { @apply bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 border border-red-200 dark:border-red-800; }
+  .badge-gray  { @apply bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-200 dark:border-gray-700; }
+  .badge-brand { @apply bg-brand-100 text-brand-700 dark:bg-brand-900/50 dark:text-brand-300 border border-brand-200 dark:border-brand-800; }
 }

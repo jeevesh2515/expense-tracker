@@ -85,12 +85,12 @@ export function PersonPaymentCard({
   }
 
   return (
-    <div className="p-4">
+    <div className="p-4 rounded-xl border border-gray-100 dark:border-gray-800/80 hover:border-gray-200/90 dark:hover:border-gray-700/80 hover:bg-gray-50/50 dark:hover:bg-gray-900/40 transition-all duration-200">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          <Avatar name={personName} color={personColorHex} />
+          <Avatar name={personName} color={personColorHex} className="hover:scale-105 transition-transform" />
           <div>
-            <div className="font-medium text-gray-900 dark:text-white">{personName}</div>
+            <div className="font-semibold text-gray-900 dark:text-white">{personName}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
               Owes {formatCentsCompact(owed, currencySymbol)} · Paid {formatCentsCompact(paid, currencySymbol)}
             </div>
@@ -98,7 +98,7 @@ export function PersonPaymentCard({
               <button
                 type="button"
                 onClick={() => setShowHistory(!showHistory)}
-                className="text-xs text-brand-600 dark:text-brand-400 mt-1 inline-flex items-center gap-0.5"
+                className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 mt-1 inline-flex items-center gap-0.5 cursor-pointer transition-colors"
               >
                 {showHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 {payments.length} payment{payments.length === 1 ? "" : "s"} on record
@@ -109,12 +109,12 @@ export function PersonPaymentCard({
         <div className="flex items-center gap-3">
           <div
             className={
-              "text-sm font-semibold " +
+              "text-sm font-bold " +
               (remaining === 0
-                ? "text-emerald-700"
+                ? "text-emerald-700 dark:text-emerald-300"
                 : remaining < 0
-                ? "text-amber-700"
-                : "text-red-700")
+                ? "text-amber-700 dark:text-amber-300"
+                : "text-red-700 dark:text-red-300")
             }
           >
             {remaining === 0
@@ -136,8 +136,8 @@ export function PersonPaymentCard({
       {showHistory && payments.length > 0 && (
         <div className="mt-3 pl-12 space-y-1">
           {payments.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 group">
-              <span className="w-24 font-mono">
+            <div key={p.id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 group p-1 rounded-lg hover:bg-gray-100/70 dark:hover:bg-gray-800/60 transition-colors">
+              <span className="w-24 font-mono font-medium">
                 {formatCentsCompact(p.amountCents, currencySymbol)}
               </span>
               <span className="text-gray-500 dark:text-gray-500">{formatDate(p.paidAt)}</span>
@@ -145,7 +145,7 @@ export function PersonPaymentCard({
               <button
                 type="button"
                 onClick={() => removePayment(p.id)}
-                className="ml-auto text-gray-300 hover:text-red-600 opacity-0 group-hover:opacity-100"
+                className="ml-auto text-gray-400 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all hover:scale-110 cursor-pointer p-1"
                 title="Delete payment"
               >
                 <Trash2 className="w-3.5 h-3.5" />

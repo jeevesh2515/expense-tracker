@@ -98,13 +98,15 @@ function SwipeableTransactionRow({
       >
         <Link
           href={`/projects/${projectId}/transactions/${t.id}`}
-          className="flex items-center justify-between gap-3 sm:gap-4 p-3 sm:p-4 min-h-[60px]"
+          className="group flex items-center justify-between gap-3 sm:gap-4 p-3.5 sm:p-4 min-h-[64px] hover:bg-brand-50/50 dark:hover:bg-brand-950/30 transition-all duration-200"
         >
           <div className="flex items-start gap-2.5 sm:gap-3 min-w-0 flex-1">
             {payer && <Avatar name={payer.name} color={payer.colorHex} size="sm" />}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                <span className="font-medium text-gray-900 dark:text-white truncate text-sm sm:text-base">{t.title}</span>
+                <span className="font-semibold text-gray-900 dark:text-white group-hover:text-brand-600 dark:group-hover:text-brand-400 truncate text-sm sm:text-base transition-colors">
+                  {t.title}
+                </span>
                 {fullyPaid && <span className="badge badge-green text-[10px] sm:text-xs">Settled</span>}
                 {partiallyPaid && <span className="badge badge-amber text-[10px] sm:text-xs">Partial</span>}
                 {!fullyPaid && !partiallyPaid && <span className="badge badge-gray text-[10px] sm:text-xs">Unpaid</span>}
@@ -118,11 +120,11 @@ function SwipeableTransactionRow({
             </div>
           </div>
           <div className="text-right shrink-0">
-            <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">
+            <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors">
               {formatCentsCompact(t.totalAmountCents, currencySymbol)}
             </div>
           </div>
-          <ArrowRight className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0 hidden sm:block" />
+          <ArrowRight className="w-4 h-4 text-gray-400 dark:text-gray-500 group-hover:text-brand-500 group-hover:translate-x-1 shrink-0 hidden sm:block transition-all duration-200" />
         </Link>
       </motion.div>
     </li>
