@@ -5,6 +5,11 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["src/**/*.test.ts"],
+    // Pin TZ so Date math (`getDate`, `getDay`, `setDate`, `toISOString`)
+    // produces identical bucket boundaries across developer machines and
+    // CI runners. The bucket helpers under test rely on local-day math,
+    // which is otherwise TZ-fragile.
+    env: { TZ: "UTC" },
   },
   resolve: {
     alias: {

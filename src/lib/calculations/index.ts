@@ -471,7 +471,7 @@ export function computeProjectBalances(params: {
 /* Category filter                                                            */
 /* -------------------------------------------------------------------------- */
 
-import { CATEGORY_FILTER_UNTAGGED } from "../db/schema";
+import { CATEGORY_FILTER_UNTAGGED, type SpendingRange } from "../db/schema";
 
 export type CategoryFilterInput = {
   /** Transaction category string. `null`/`undefined`/`""` are all "untagged". */
@@ -519,6 +519,160 @@ export function applyCategoryFilter<T extends CategoryFilterInput>(
 ): T[] {
   if (filter === null) return txns;
   return txns.filter((t) => matchesCategoryFilter(t, filter));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Spending-over-time bucket generation                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One bucket of the spending-over-time series. The bucket is identified by
+ * `key` (a YYYY-MM-DD string of its start date in UTC) and its precise
+ * epoch-ms start (`startMs`). The chart component uses `key` for the
+ * x-axis label and `startMs` for unambiguous range comparison when
+ * sorting transactions into buckets.
+ */
+export type SpendingBucket = {
+  key: string;
+  startMs: number;
+};
+
+/**
+ * Pure helper that produces the spending-over-time bucket boundaries for
+ * the per-project chart selector.
+ *
+ * Branches — chosen by `range`:
+ *   "7d"  → 7 buckets, 1-day stride, start = now − 6 days. (Daily, no floor.)
+ *   "30d" → 30 buckets, 1-day stride, start = now − 29 days. (Daily, no floor.)
+ *   "90d" → 13 buckets, 7-day stride, start = now − 12 weeks, FLOORED to
+ *           the preceding Sunday so weekly buckets align on the same
+ *           boundary across renders — this is the only branch that floors.
+ *   "all" → stride = totalDays > 180 ? 30 (monthly) : 7 (weekly);
+ *           bucketCount = max(1, ceil(totalDays / stride));
+ *           start = oldest transaction's occurredAt. No Sunday-floor:
+ *           bucket[0] stays anchored at the project's inception txn,
+ *           which is more honest than padding empty Sundays.
+ *
+ *           When `transactions` is empty, returns a single weekly bucket
+ *           anchored at `now` (matches the previous in-page default; gives
+ *           the chart something to render).
+ *
+ * The `transactions` array is only consulted for the "all" branch and only
+ * to find the OLDEST occurredAt — input order does not matter (we
+ * min-reduce). For "7d"/"30d"/"90d" it is accepted but unused.
+ *
+ * `now` is supplied as a parameter (rather than reading `new Date()`
+ * inside) so callers + tests can pin time and assert exact boundaries.
+ *
+ * Pure: never mutates `now` or any input transaction. The bucket series
+ * is a fresh array each call.
+ *
+ * NOTE: bucket keys are produced via `d.toISOString().slice(0, 10)` (UTC
+ * YYYY-MM-DD) while `setDate` and `getDay` operate in local time. In
+ * non-UTC environments the visible bucket label can drift a day from the
+ * local-day intent — this matches the pre-extraction in-page behavior.
+ * Centralizing it here makes the caveat visible to future callers; a
+ * later PR can anchor both sides to UTC if cross-TZ determinism is
+ * required.
+ */
+export function computeSpendingBuckets(
+  range: SpendingRange,
+  transactions: { occurredAt: Date | number }[],
+  now: Date,
+): SpendingBucket[] {
+  let bucketCount: number;
+  let daysPerBucket: number;
+  let startMs: number;
+
+  switch (range) {
+    case "7d": {
+      bucketCount = 7;
+      daysPerBucket = 1;
+      // Daily window containing today; bucket[0] is (now − 6 days).
+      // Not Sunday-floored.
+      {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 6);
+        startMs = start.getTime();
+      }
+      break;
+    }
+    case "30d": {
+      bucketCount = 30;
+      daysPerBucket = 1;
+      // Daily 30-bucket window; bucket[0] is (now − 29 days).
+      // Not Sunday-floored.
+      {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 29);
+        startMs = start.getTime();
+      }
+      break;
+    }
+    case "90d": {
+      bucketCount = 13;
+      daysPerBucket = 7;
+      // 13 weekly buckets ending this week. Sunday-floor ONLY happens
+      // here — the "all" branch deliberately does NOT floor so that
+      // bucket[0] anchors precisely at the project's first txn.
+      {
+        const start = new Date(now);
+        start.setDate(start.getDate() - 12 * 7);
+        const startDow = start.getDay();
+        if (startDow !== 0) {
+          start.setDate(start.getDate() - startDow);
+        }
+        startMs = start.getTime();
+      }
+      break;
+    }
+    case "all": {
+      if (transactions.length === 0) {
+        // No data yet: give the chart one weekly bucket anchored at `now`.
+        bucketCount = 1;
+        daysPerBucket = 7;
+        startMs = now.getTime();
+      } else {
+        const firstTxnMs = minOccurredAtMs(transactions);
+        // totalDays clamped to >= 1 so a future-dated or same-day first
+        // txn still produces a sensible bucket count rather than 0.
+        const totalDays = Math.max(
+          1,
+          Math.floor((now.getTime() - firstTxnMs) / 86_400_000),
+        );
+        daysPerBucket = totalDays > 180 ? 30 : 7;
+        bucketCount = Math.max(1, Math.ceil(totalDays / daysPerBucket));
+        startMs = firstTxnMs;
+      }
+      break;
+    }
+  }
+
+  const out: SpendingBucket[] = [];
+  for (let i = 0; i < bucketCount; i++) {
+    const d = new Date(startMs);
+    d.setDate(d.getDate() + i * daysPerBucket);
+    out.push({
+      key: d.toISOString().slice(0, 10),
+      startMs: d.getTime(),
+    });
+  }
+  return out;
+}
+
+/** Min-reduce to find the oldest occurredAt across the supplied rows. */
+function minOccurredAtMs(
+  transactions: { occurredAt: Date | number }[],
+): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (const t of transactions) {
+    const ms =
+      t.occurredAt instanceof Date
+        ? t.occurredAt.getTime()
+        : Number(t.occurredAt);
+    if (Number.isFinite(ms) && ms < min) min = ms;
+  }
+  return min;
 }
 
 /* -------------------------------------------------------------------------- */

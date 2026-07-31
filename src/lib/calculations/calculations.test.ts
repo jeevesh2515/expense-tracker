@@ -10,6 +10,7 @@ import {
   simplifySettlements,
   applyCategoryFilter,
   matchesCategoryFilter,
+  computeSpendingBuckets,
 } from "./index";
 import { CATEGORY_FILTER_UNTAGGED } from "../db/schema";
 
@@ -644,6 +645,224 @@ describe("applyCategoryFilter", () => {
 
   it("zero matches returns an empty array, not null", () => {
     expect(applyCategoryFilter(txns, "DoesNotExist")).toEqual([]);
+  });
+});
+
+describe("computeSpendingBuckets (per-project chart series)", () => {
+  // Pin `now` to deterministic UTC moments. With TZ=UTC pinned in
+  // vitest.config.ts every assertion below is identical across machines
+  // + CI runners. Both `now` and `msOf` use midnight-UTC so the helper's
+  // setDate math lands exactly on the same epoch-ms as our expectations.
+  const WED_NOW = new Date("2026-08-05T00:00:00Z"); // Wednesday at 00:00 UTC
+  const SUN_NOW = new Date("2026-08-09T00:00:00Z"); // Sunday at 00:00 UTC
+  const msOf = (iso: string) => new Date(`${iso}T00:00:00Z`).getTime();
+
+  describe("7d branch", () => {
+    it("produces 7 daily buckets ending today; bucket[0] = now − 6d; not Sunday-floored", () => {
+      const r = computeSpendingBuckets("7d", [], WED_NOW);
+      expect(r).toHaveLength(7);
+      expect(r[0]!.key).toBe("2026-07-30");
+      expect(r[0]!.startMs).toBe(msOf("2026-07-30"));
+      expect(r[6]!.key).toBe("2026-08-05");
+      expect(r[6]!.startMs).toBe(msOf("2026-08-05"));
+      const stride = 86_400_000;
+      for (let i = 1; i < r.length; i++) {
+        expect(r[i]!.startMs - r[i - 1]!.startMs).toBe(stride);
+      }
+    });
+  });
+
+  describe("30d branch", () => {
+    it("produces 30 daily buckets; bucket[0] = now − 29d; not Sunday-floored", () => {
+      const r = computeSpendingBuckets("30d", [], WED_NOW);
+      expect(r).toHaveLength(30);
+      expect(r[0]!.key).toBe("2026-07-07");
+      expect(r[29]!.key).toBe("2026-08-05");
+      const stride = 86_400_000;
+      for (let i = 1; i < r.length; i++) {
+        expect(r[i]!.startMs - r[i - 1]!.startMs).toBe(stride);
+      }
+    });
+  });
+
+  describe("90d branch (the only Sunday-floored branch)", () => {
+    it("does not shift start when now is already a Sunday", () => {
+      const r = computeSpendingBuckets("90d", [], SUN_NOW);
+      expect(r).toHaveLength(13);
+      // SUN_NOW − 84 days = 2026-05-17 (Sun); getDay() === 0 → no floor shift.
+      expect(r[0]!.key).toBe("2026-05-17");
+      expect(r[0]!.startMs).toBe(msOf("2026-05-17"));
+    });
+
+    it("floors start back to the preceding Sunday when now is mid-week", () => {
+      const r = computeSpendingBuckets("90d", [], WED_NOW);
+      expect(r).toHaveLength(13);
+      // WED_NOW (= 2026-08-05) − 84 days = 2026-05-13 (Wed); getDay()=3 →
+      // floor back 3 days → 2026-05-10 (Sun).
+      expect(r[0]!.key).toBe("2026-05-10");
+      expect(r[0]!.startMs).toBe(msOf("2026-05-10"));
+    });
+
+    it("uses a 7-day stride across all 13 buckets", () => {
+      const r = computeSpendingBuckets("90d", [], WED_NOW);
+      const stride = 7 * 86_400_000;
+      for (let i = 1; i < r.length; i++) {
+        expect(r[i]!.startMs - r[i - 1]!.startMs).toBe(stride);
+      }
+      // Last bucket lands on (or just before) WED_NOW's day.
+      expect(r[12]!.startMs).toBeLessThanOrEqual(WED_NOW.getTime());
+    });
+  });
+
+  describe("'all' branch (anchored at the oldest transaction; no Sunday-floor)", () => {
+    it("returns a single weekly bucket anchored at now when there are 0 transactions", () => {
+      const r = computeSpendingBuckets("all", [], WED_NOW);
+      expect(r).toHaveLength(1);
+      expect(r[0]!.key).toBe("2026-08-05");
+      expect(r[0]!.startMs).toBe(WED_NOW.getTime());
+    });
+
+    it("clamps same-day single txn to totalDays=1 (weekly stride, length=1)", () => {
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: WED_NOW }],
+        WED_NOW,
+      );
+      expect(r).toHaveLength(1);
+      // bucket[0] = firstTxnMs = WED_NOW — NO Sunday-floor, even on Friday.
+      expect(r[0]!.startMs).toBe(WED_NOW.getTime());
+      expect(r[0]!.key).toBe("2026-08-05");
+    });
+
+    it("uses a 7-day stride when totalDays ≤ 180 (exact 180d boundary: 180 NOT > 180)", () => {
+      const firstMs = WED_NOW.getTime() - 180 * 86_400_000;
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: firstMs }],
+        WED_NOW,
+      );
+      expect(r).toHaveLength(26); // ceil(180/7) = 26
+      const stride = 7 * 86_400_000;
+      for (let i = 1; i < r.length; i++) {
+        expect(r[i]!.startMs - r[i - 1]!.startMs).toBe(stride);
+      }
+      expect(r[0]!.startMs).toBe(firstMs);
+    });
+
+    it("switches to a 30-day stride once totalDays > 180 (exact 181d boundary)", () => {
+      const firstMs = WED_NOW.getTime() - 181 * 86_400_000;
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: firstMs }],
+        WED_NOW,
+      );
+      expect(r).toHaveLength(7); // ceil(181/30) = 7
+      const stride = 30 * 86_400_000;
+      for (let i = 1; i < r.length; i++) {
+        expect(r[i]!.startMs - r[i - 1]!.startMs).toBe(stride);
+      }
+      expect(r[0]!.startMs).toBe(firstMs);
+    });
+
+    it("clamps a future-dated first txn (negative totalDays) to 1 weekly bucket anchored at the future date", () => {
+      const futureMs = WED_NOW.getTime() + 90 * 86_400_000;
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: futureMs }],
+        WED_NOW,
+      );
+      // totalDays = −90 → max(1, −90) = 1; stride = 7; ceil(1/7) = 1
+      expect(r).toHaveLength(1);
+      expect(r[0]!.startMs).toBe(futureMs);
+    });
+
+    it("rolls forward across Feb in non-leap years (existing in-page behavior pinned)", () => {
+      // Non-leap 2026: now = 2026-08-05 12:00 UTC, first = 2026-02-05
+      // 00:00 UTC ⇒ diff floor = 181d ⇒ monthly stride ⇒ 7 buckets.
+      const first = msOf("2026-02-05");
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: first }],
+        WED_NOW,
+      );
+      expect(r).toHaveLength(7);
+      expect(r[0]!.key).toBe("2026-02-05");
+      // Feb 5 +30d → Feb has 28 days → surplus = 35 − 28 = 7 → March 7.
+      expect(r[1]!.key).toBe("2026-03-07");
+      // March 7 +30d → March has 31 days → surplus = 37 − 31 = 6 → April 6.
+      expect(r[2]!.key).toBe("2026-04-06");
+    });
+
+    it("rolls forward across Feb 29 in leap years (2028 boundary)", () => {
+      // Leap 2028: now = 2028-03-15, first = 2027-09-15 ⇒ 182d ⇒ monthly.
+      const firstMs = msOf("2027-09-15");
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: firstMs }],
+        new Date(msOf("2028-03-15")),
+      );
+      expect(r).toHaveLength(7); // ceil(182/30) = 7
+      expect(r[0]!.key).toBe("2027-09-15");
+      // Sept 15 +30d → Sept has 30 days → surplus = 45 − 30 = 15 → Oct 15.
+      expect(r[1]!.key).toBe("2027-10-15");
+      // Oct 15 +30d → Oct has 31 days → surplus = 45 − 31 = 14 → Nov 14.
+      expect(r[2]!.key).toBe("2027-11-14");
+    });
+
+    it("does NOT Sunday-floor bucket[0] even when stride is weekly (preserves existing behavior)", () => {
+      // Anchor first on a Friday (after Sunday) — 90d branch would floor;
+      // 'all' must keep the txn-anchored start.
+      const firstMs = new Date("2026-08-07T17:00:00Z").getTime(); // Friday
+      const nowMs = new Date("2026-08-05T17:00:00Z").getTime(); // Wednesday (so totalDays stays 2 → stride 7)
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: firstMs }],
+        new Date(nowMs),
+      );
+      expect(r[0]!.startMs).toBe(firstMs);
+      expect(r[0]!.key).toBe("2026-08-07");
+    });
+
+    it("finds the oldest txn via min-reduce (order-independent)", () => {
+      const txns = [
+        { occurredAt: msOf("2026-08-05") },
+        { occurredAt: msOf("2026-02-05") }, // oldest — DESC order
+        { occurredAt: msOf("2026-06-01") },
+      ];
+      const rDesc = computeSpendingBuckets("all", txns, WED_NOW);
+      const rAsc = computeSpendingBuckets("all", [...txns].reverse(), WED_NOW);
+      expect(rDesc[0]!.key).toBe("2026-02-05");
+      expect(rDesc[0]!.startMs).toBe(msOf("2026-02-05"));
+      // Same result regardless of input order.
+      expect(rAsc[0]!.key).toBe(rDesc[0]!.key);
+      expect(rAsc[0]!.startMs).toBe(rDesc[0]!.startMs);
+    });
+  });
+
+  describe("purity + input shapes", () => {
+    it("does not mutate `now`", () => {
+      const now = new Date(WED_NOW);
+      computeSpendingBuckets("90d", [], now);
+      expect(now.getTime()).toBe(WED_NOW.getTime());
+    });
+
+    it("accepts occurredAt as Date", () => {
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: new Date(msOf("2026-02-05")) }],
+        WED_NOW,
+      );
+      expect(r[0]!.key).toBe("2026-02-05");
+    });
+
+    it("accepts occurredAt as number (epoch ms)", () => {
+      const r = computeSpendingBuckets(
+        "all",
+        [{ occurredAt: msOf("2026-02-05") }],
+        WED_NOW,
+      );
+      expect(r[0]!.key).toBe("2026-02-05");
+    });
   });
 });
 
