@@ -10,6 +10,7 @@ import {
 } from "@/lib/calculations";
 import { BalanceView } from "@/components/BalanceView";
 import { ProjectCharts, type CategoryPoint, type PersonNet, type SpendingPoint } from "@/components/ProjectCharts";
+import { ProjectSankey, type SankeyData, type SankeyDataLink, type SankeyDataNode } from "@/components/ProjectSankey";
 import { SettleUpCard, type SettlementCta } from "@/components/SettleUpCard";
 import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -196,6 +197,106 @@ export default async function ProjectOverviewPage({
     })
     .sort((a, b) => b.net - a.net);
 
+  // -----------------------------------------------------------------------
+  // Sankey: payer → transaction → consumer flow. Drawn at transaction-level
+  // granularity so the user can read "who paid for what". Top 8 transactions
+  // get their own middle lane; remaining ones collapse into "T_other" so the
+  // diagram stays readable regardless of scale.
+  // -----------------------------------------------------------------------
+  const SANKEY_TOP_N = 8;
+  const sortedTxnsDesc = [...projectTransactions].sort(
+    (a, b) => b.totalAmountCents - a.totalAmountCents,
+  );
+  const topTxnIds = new Set(
+    sortedTxnsDesc.slice(0, SANKEY_TOP_N).map((t) => t.id),
+  );
+  const txnById = new Map(projectTransactions.map((t) => [t.id, t]));
+
+  // bucketId contract: "T_<txnId>" for top-8 txns, "T_other" for the rest.
+  const bucketIdFor = (txnId: string): string =>
+    topTxnIds.has(txnId) ? `T_${txnId}` : "T_other";
+
+  // Pre-allocate consumer-cent maps per bucket (skip the runtime null check on
+  // every split).
+  const bucketToConsumerCents = new Map<string, Map<string, number>>();
+  for (const t of projectTransactions) {
+    bucketToConsumerCents.set(bucketIdFor(t.id), new Map());
+  }
+  for (const s of allSplitsByProject) {
+    if (s.owedAmountCents <= 0) continue;
+    const t = txnById.get(s.transactionId);
+    if (!t) continue;
+    const bucketMap = bucketToConsumerCents.get(bucketIdFor(t.id));
+    if (!bucketMap) continue;
+    bucketMap.set(
+      s.personId,
+      (bucketMap.get(s.personId) ?? 0) + s.owedAmountCents,
+    );
+  }
+
+  // Materialize nodes + links for the client component.
+  const sankeyNodesById = new Map<string, SankeyDataNode>();
+  const ensureNode = (
+    id: string,
+    name: string,
+    type: SankeyDataNode["type"],
+    colorHex: string,
+  ): void => {
+    if (!sankeyNodesById.has(id)) {
+      sankeyNodesById.set(id, { id, name, type, colorHex });
+    }
+  };
+  const sankeyLinksByKey = new Map<string, SankeyDataLink>();
+  const ensureLink = (key: string, link: SankeyDataLink): void => {
+    const existing = sankeyLinksByKey.get(key);
+    if (existing) {
+      existing.value += link.value;
+      return;
+    }
+    sankeyLinksByKey.set(key, { ...link });
+  };
+
+  // Payer + outbound (payer → bucket) links.
+  for (const t of projectTransactions) {
+    const bucketId = bucketIdFor(t.id);
+    const payerRecord = personByIdForCharts.get(t.paidById);
+    if (!payerRecord) continue;
+    const payerColor = payerRecord.colorHex || colorForString(payerRecord.name);
+    ensureNode(`L_${t.paidById}`, payerRecord.name, "payer", payerColor);
+    ensureNode(
+      bucketId,
+      topTxnIds.has(t.id) ? t.title : "Other transactions",
+      "txn",
+      payerColor,
+    );
+    ensureLink(`L_${t.paidById}|${bucketId}`, {
+      source: `L_${t.paidById}`,
+      target: bucketId,
+      value: t.totalAmountCents,
+    });
+  }
+
+  // Consumer + outbound (bucket → consumer) links.
+  for (const [bucketId, consumerCents] of bucketToConsumerCents.entries()) {
+    for (const [consumerId, cents] of consumerCents.entries()) {
+      const consumer = personByIdForCharts.get(consumerId);
+      if (!consumer) continue;
+      const consumerColor =
+        consumer.colorHex || colorForString(consumer.name);
+      ensureNode(`R_${consumerId}`, consumer.name, "consumer", consumerColor);
+      ensureLink(`${bucketId}|R_${consumerId}`, {
+        source: bucketId,
+        target: `R_${consumerId}`,
+        value: cents,
+      });
+    }
+  }
+
+  const sankeyData: SankeyData = {
+    nodes: Array.from(sankeyNodesById.values()),
+    links: Array.from(sankeyLinksByKey.values()),
+  };
+
   return (
     <div className="space-y-6">
       {projectPeople.length === 0 ? (
@@ -225,6 +326,13 @@ export default async function ProjectOverviewPage({
             people={peopleForBars}
             currencySymbol={project.currencySymbol}
           />
+
+          {sankeyData.links.length > 0 && (
+            <ProjectSankey
+              data={sankeyData}
+              currencySymbol={project.currencySymbol}
+            />
+          )}
 
           {topSettlements.length > 0 && (
             <SettleUpCard
